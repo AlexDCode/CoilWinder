@@ -91,7 +91,7 @@ void setup()
   setMicrostepping(MICROSTEPS, FEEDER_MS1_PIN, FEEDER_MS2_PIN, FEEDER_MS3_PIN);
   setMicrostepping(MICROSTEPS, SPINDLE_MS1_PIN, SPINDLE_MS2_PIN, SPINDLE_MS3_PIN);
 
-  loadDefaultSettings(); // Load Default Settings at startup; Comment to avoid
+  // loadDefaultSettings(); // Load Default Settings at startup; Comment to avoid
 
   attachInterrupt(digitalPinToInterrupt(END_STOP_1_PIN), righEndStop, FALLING);
   attachInterrupt(digitalPinToInterrupt(END_STOP_2_PIN), leftEndStop, FALLING);
@@ -335,7 +335,7 @@ void buildCoil()
 
 void decodeSerial()
 {
-  // Create a "G-Code" standard to adjust settings and submit
+  // Create a "Micro G-Code" standard to adjust settings and submit
   // Example: S01 -> split S: Settings/R:Coil, 01: FEEDER_RPM/etc.
 
   // Decode incoming info (Function Table/Mapping)

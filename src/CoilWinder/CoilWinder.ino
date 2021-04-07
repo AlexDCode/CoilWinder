@@ -501,9 +501,9 @@ void decodeSerial()
   // Separate the command by its sections for parsing
   char command_char = data_buffer[0];
   uint8_t command_num = data_buffer[1];
-  uint16_t command_x = (uint16_t)(data_buffer[2] << 16) | (uint16_t)data_buffer[3]; // If this conversion does not work, try inverting the array elements
-  uint16_t command_y = (uint16_t)(data_buffer[4] << 16) | (uint16_t)data_buffer[5];
-  uint16_t command_z = (uint16_t)(data_buffer[6] << 16) | (uint16_t)data_buffer[7];
+  uint16_t command_x = (uint16_t)(data_buffer[2] << 8) | (uint16_t)data_buffer[3]; // If this conversion does not work, try inverting the array elements
+  uint16_t command_y = (uint16_t)(data_buffer[4] << 8) | (uint16_t)data_buffer[5];
+  uint16_t command_z = (uint16_t)(data_buffer[6] << 8) | (uint16_t)data_buffer[7];
 
   // Decode incoming info
   switch (command_char)

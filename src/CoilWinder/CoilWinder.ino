@@ -15,18 +15,8 @@
 
   ?Command Instruction Set:
     (command_x, wire_gauge_mm, turns)
-    
-    M ==> Miscellaneous Data:
-      000 -> Null (Not in use)
-      001 -> Turn Steppers Off
-      002 -> Turn Steppers On
-      011 -> Get feeder.getCurrentSpeed()
-      012 -> Get feeder.getPosition
-      021 -> Get spindle.getCurrentSpeed()
-      023 -> Get completed turns as spindle.getPosition() / STEPS_PER_REV
 
     C ==> Define Coil Parameters
-      000 -> Null (Not in use)
       001 -> Define Coil Parameters (coil_width, wire_gauge_mm, turns)
       010 -> Build Coil with saved parameters
       020 -> Get saved coil_width
@@ -34,6 +24,16 @@
       022 -> Get saved turns
       023 -> Get calculated number of layer
       024 -> Get calculated turns per layer
+
+    M ==> Miscellaneous Data:
+      001 -> Turn Steppers Off
+      002 -> Turn Steppers On
+      003 -> Home the feeder
+      005 -> Get leading motor speed
+      006 -> Get feeder (X) position in steps and spindle (Y) position in steps
+      007 -> Get completed turns
+      117 -> Message
+      118 -> Response with required data
 
     S ==> Settings:
       000 -> Display Help Message (0, 0, 0)
@@ -45,16 +45,17 @@
       021 -> Change Spindle ACCEL (SPINDLE_ACCEL, 0, 0)
       022 -> Change Spindle DECEL (SPINDLE_DECEL, 0, 0)
       023 -> Change Spindle POLARITY (SPINDLE_POLARITY, 0, 0)
+      031 -> Change Microstepping Resolution (MICROSTEPS, 0, 0)
       099 -> Load Default Setings (0, 0, 0)
 
     Example:
-      S 099 0000 0000 0000
+      (char)S (uint8_t)10 (uint16_t)1000 (uint16_t)0 (uint16_t)0 (char)';'
 
   ---------------- TODO: ----------------
-  * Add Pinout description from hardware/Schematics/Circuit Pinouts.docx in the intro commentary @ghiralgo5
-  * Create Menu and "G-Code" Standard 2-Way @ByteCommando
-  * Create parsing function to identify and execute commands @ByteCommando
-  * Standarize how to send the progress and stats "G-Code" @ByteCommando
+  * Add Pinout description from hardware/Schematics/Circuit Pinouts.docx in the intro commentary @ghiraldo5
+  * Create Menu and Verify Command Instruction Set @ByteCommando
+  * Verify parsing function to identify and execute commands @ByteCommando
+  * Standarize how to send the progress and stats "G-Code" @ByteCommando | Done @AlexDCode
   * Create overrideSpeed() function to change the speed of the winding to a percentage of the established RPM using a potentiometer. @AlexDCode
   * Create overideFeederOffset() to change the feeder offset during execution @AlexDCode
 */
@@ -76,8 +77,9 @@ uint32_t SPINDLE_ACCEL;
 uint32_t SPINDLE_DECEL;
 boolean FEEDER_POLARITY;
 boolean SPINDLE_POLARITY;
-const uint32_t STEPS_PER_REV = MOTOR_STEPS * MICROSTEPS;
-const float FEEDER_STEPS_PER_MILIMETER = STEPS_PER_REV / LEADSCREW_PITCH; // 1 revolution moves 2 mm
+uint8_t MICROSTEPS;
+uint32_t STEPS_PER_REV;
+float FEEDER_STEPS_PER_MILIMETER;
 
 // Stepper Driver Objects for feeder ans spindle
 Stepper feeder(FEEDER_STEP_PIN, FEEDER_DIR_PIN);
@@ -96,6 +98,10 @@ std::vector<int32_t> coil_spindleSteps;
 // Store calculated coil parameters
 uint32_t layers;
 float turns;
+float coil_width;
+float wire_gauge_mm;
+float turns_per_layer;
+float calculated_height;
 
 void setup()
 {
@@ -116,6 +122,10 @@ void setup()
   EEPROM.get(SPINDLE_DECEL_ADDRESS, SPINDLE_DECEL);
   EEPROM.get(FEEDER_POLARITY_ADDRESS, FEEDER_POLARITY);
   EEPROM.get(SPINDLE_POLARITY_ADDRESS, SPINDLE_POLARITY);
+  EEPROM.get(MICROSTEPS_ADDRESS, MICROSTEPS);
+
+  STEPS_PER_REV = MOTOR_STEPS * MICROSTEPS;
+  FEEDER_STEPS_PER_MILIMETER = STEPS_PER_REV / LEADSCREW_PITCH; // 1 revolution moves 2 mm
 
   // Micro switch as inputs with pullup resistors
   pinMode(END_STOP_2_PIN, INPUT_PULLUP);
@@ -165,21 +175,22 @@ void loop()
     feederHomming();
 
   // If data is incomming decode the instruction and execute accordingly
-  if (Serial.available())
+  if (Serial.available() > 8)
     decodeSerial();
 }
 
 void loadDefaultSettings()
 {
   // Write the default setting values into the EEPROM
-  EEPROM.put(FEEDER_RPM_ADDRESS, (uint16_t)25000);
-  EEPROM.put(SPINDLE_RPM_ADDRESS, (uint16_t)25000);
-  EEPROM.put(FEEDER_ACCEL_ADDRESS, (uint16_t)5000);
-  EEPROM.put(FEEDER_DECEL_ADDRESS, (uint16_t)3000);
-  EEPROM.put(SPINDLE_ACCEL_ADDRESS, (uint16_t)5000);
-  EEPROM.put(SPINDLE_DECEL_ADDRESS, (uint16_t)3000);
-  EEPROM.put(FEEDER_POLARITY_ADDRESS, (bool)false);
-  EEPROM.put(SPINDLE_POLARITY_ADDRESS, (bool)false);
+  EEPROM.put(FEEDER_RPM_ADDRESS, (uint16_t)FEEDER_RPM_DEFAULT);
+  EEPROM.put(SPINDLE_RPM_ADDRESS, (uint16_t)SPINDLE_RPM_DEFAULT);
+  EEPROM.put(FEEDER_ACCEL_ADDRESS, (uint16_t)FEEDER_ACCEL_DEFAULT);
+  EEPROM.put(FEEDER_DECEL_ADDRESS, (uint16_t)FEEDER_DECEL_DEFAULT);
+  EEPROM.put(SPINDLE_ACCEL_ADDRESS, (uint16_t)SPINDLE_ACCEL_DEFAULT);
+  EEPROM.put(SPINDLE_DECEL_ADDRESS, (uint16_t)SPINDLE_DECEL_DEFAULT);
+  EEPROM.put(FEEDER_POLARITY_ADDRESS, (bool)FEEDER_POLARITY_DEFAULT);
+  EEPROM.put(SPINDLE_POLARITY_ADDRESS, (bool)SPINDLE_POLARITY_DEFAULT);
+  EEPROM.put(MICROSTEPS_ADDRESS, (uint8_t)MICROSTEPS_DEFAULT);
 }
 
 void setMicrostepping(uint16_t _Microstep, uint16_t _ms1_pin, uint16_t _ms2_pin, uint16_t _ms3_pin)
@@ -358,7 +369,7 @@ void feederHomming()
   while (!rightLimit)
   {
     feeder.setTargetRel(-480000);
-    step_controller.move(feeder);
+    step_controller.moveAsync(feeder);
     rightLimit = !digitalRead(END_STOP_1_PIN);
   }
 
@@ -376,7 +387,6 @@ void feederHomming()
 
   // Turn off all the steppers to avoid movement during home position reset
   turnOffSteppers();
-  delay(100);
 
   // Pull down and then up to reset the feeder driver internal home state
   digitalWrite(FEEDER_RST_PIN, LOW); // Feeder Stepper Driver Reset
@@ -397,10 +407,14 @@ void feederHomming()
   homingRequired = false;
 }
 
-void coilCharacterization(float _coil_width, float _wire_gauge_mm, float _turns, uint32_t &_layers)
+void coilCharacterization(float _coil_width = coil_width, float _wire_gauge_mm = wire_gauge_mm, float _turns = turns, float &_turns_per_layer = turns_per_layer, uint32_t &_layers = layers)
 {
+  // Set the global variables to the input values
+  wire_gauge_mm = _wire_gauge_mm;
+  coil_width = _coil_width;
+  turns = _turns;
   // Calculate how many turns can be made for a wire of teh specified gauge and coil width
-  float _turns_per_layer = _coil_width / _wire_gauge_mm;
+  _turns_per_layer = _coil_width / _wire_gauge_mm;
 
   // Calculate the total number of layers and if its a fraction of a total turn round up
   _layers = int32_t(_turns / _turns_per_layer);
@@ -408,7 +422,7 @@ void coilCharacterization(float _coil_width, float _wire_gauge_mm, float _turns,
     _layers++;
 
   // Calculate the height of the coil layer by layer
-  float _calculated_height = _layers * _wire_gauge_mm;
+  calculated_height = _layers * _wire_gauge_mm;
   // Print error if calculated height is bigger than established
 
   // Clear the motor step vectors
@@ -480,64 +494,186 @@ void buildCoil()
 
 void decodeSerial()
 {
+  // Read the serial into the data_buffer array until we reach the end character
   char data_buffer[9];
   Serial.readBytesUntil(';', data_buffer, sizeof(data_buffer));
 
-  char command_char;
-  uint8_t command_num;
-  uint16_t command_x;
-  uint16_t command_y;
-  uint16_t command_z;
+  // Separate the command by its sections for parsing
+  char command_char = data_buffer[0];
+  uint8_t command_num = data_buffer[1];
+  uint16_t command_x = (uint16_t)(data_buffer[2] << 16) | (uint16_t)data_buffer[3]; // If this conversion does not work, try inverting the array elements
+  uint16_t command_y = (uint16_t)(data_buffer[4] << 16) | (uint16_t)data_buffer[5];
+  uint16_t command_z = (uint16_t)(data_buffer[6] << 16) | (uint16_t)data_buffer[7];
 
   // Decode incoming info
   switch (command_char)
   {
+  /*
+    C ==> Define Coil Parameters
+    001 -> Define Coil Parameters (coil_width, wire_gauge_mm, turns)
+    010 -> Build Coil with saved parameters
+    020 -> Get saved coil_width
+    021 -> Get saved wire_gauge_mm
+    022 -> Get saved turns
+    023 -> Get calculated number of layer
+    024 -> Get calculated turns per layer
+  */
   case 'C':
     switch (command_num)
     {
-    case 0:
-      /* code */
+    case (1):
+      coilCharacterization(command_x, command_y, command_z);
       break;
-
+    case (10):
+      buildCoil();
+      break;
+    case (20):
+      Serial.println(coil_width);
+      break;
+    case (21):
+      Serial.println(wire_gauge_mm);
+      break;
+    case (22):
+      Serial.println(turns);
+      break;
+    case (23):
+      Serial.println(layers);
+      break;
+    case (24):
+      Serial.println();
+      break;
     default:
+      printHelp(command_char, command_num);
       break;
     }
+
+    break;
+
+  /*
+    M ==> Miscellaneous Data:
+    001 -> Turn Steppers Off
+    002 -> Turn Steppers On
+    003 -> Home the feeder
+    005 -> Get leading motor speed
+    006 -> Get feeder (X) position in steps and spindle (Y) position in steps
+    007 -> Get completed turns
+    117 -> Message
+    118 -> Response with required data
+  */
   case 'M':
     switch (command_num)
     {
-    case 0:
-      /* code */
+    case (1):
+      turnOffSteppers();
       break;
-
+    case (2):
+      turnOnSteppers();
+      break;
+    case (3):
+      feederHomming();
+      break;
+    case (5):
+      Serial.print((char)'M');                                   // Send command group character with char data type
+      Serial.print((uint8_t)118);                                // Send command number with uint8_t data type
+      Serial.print((uint16_t)step_controller.getCurrentSpeed()); // Send leading motor speed in X position with uint16_t data type
+      Serial.print((uint16_t)0);                                 // Fill with 0 the Y position as is not used with uint16_t data type
+      Serial.print((uint16_t)0);                                 // Fill with 0 the Z position as is not used with uint16_t data type
+      Serial.println(';');                                       // Send ending character ; with char data type
+      break;
+    case (6):
+      Serial.print((char)'M');                       // Send command group character with char data type
+      Serial.print((uint8_t)118);                    // Send command number with uint8_t data type
+      Serial.print((uint16_t)feeder.getPosition());  // Send feeder position in X position with uint16_t data type
+      Serial.print((uint16_t)spindle.getPosition()); // Send spindle position in X position with uint16_t data type
+      Serial.print((uint16_t)0);                     // Fill with 0 the Z position as is not used with uint16_t data type
+      Serial.println(';');                           // Send ending character ; with char data type
+      break;
+    case (7):
+      Serial.print((char)'M');                                         // Send command group character with char data type
+      Serial.print((uint8_t)118);                                      // Send command number with uint8_t data type
+      Serial.print((uint16_t)(spindle.getPosition() / STEPS_PER_REV)); // Send spindle executed turns in X position with uint16_t data type
+      Serial.print((uint16_t)0);                                       // Fill with 0 the Y position as is not used with uint16_t data type
+      Serial.print((uint16_t)0);                                       // Fill with 0 the Z position as is not used with uint16_t data type
+      Serial.println(';');                                             // Send ending character ; with char data type
+      break;
+    case (117):
+      // Command will be used when sending general information
+      break;
+    case (118):
+      // Command will be used when sending responses
+      break;
     default:
+      printHelp();
       break;
     }
+
+    break;
+
+  /*
+    S ==> Settings:
+    000 -> Display Help Message (0, 0, 0)
+    010 -> Change Feeder RPM (FEEDER_RPM, 0, 0)
+    011 -> Change Feeder ACCEL (FEEDER_ACCEL, 0, 0)
+    012 -> Change Feeder DECEL (FEEDER_DECEL, 0, 0)
+    013 -> Change Feeder POLARITY (FEEDER_POLARITY, 0, 0)
+    020 -> Change Spindle RPM (SPINDLE_RPM, 0, 0)
+    021 -> Change Spindle ACCEL (SPINDLE_ACCEL, 0, 0)
+    022 -> Change Spindle DECEL (SPINDLE_DECEL, 0, 0)
+    023 -> Change Spindle POLARITY (SPINDLE_POLARITY, 0, 0)
+    031 -> Change Microstepping Resolution (MICROSTEPS, 0, 0)
+    099 -> Load Default Setings (0, 0, 0)
+  */
   case 'S':
     switch (command_num)
     {
     case (0):
-      /* code */
+      printHelp();
+      break;
+    case (10):
+      EEPROM.put(FEEDER_RPM_ADDRESS, (uint16_t)command_x);
+      break;
+    case (11):
+      EEPROM.put(FEEDER_ACCEL_ADDRESS, (uint16_t)command_x);
+      break;
+    case (12):
+      EEPROM.put(FEEDER_DECEL_ADDRESS, (uint16_t)command_x);
+      break;
+    case (13):
+      EEPROM.put(FEEDER_POLARITY_ADDRESS, (bool)command_x);
+      break;
+    case (20):
+      EEPROM.put(SPINDLE_RPM_ADDRESS, (uint16_t)command_x);
+      break;
+    case (21):
+      EEPROM.put(SPINDLE_ACCEL_ADDRESS, (uint16_t)command_x);
+      break;
+    case (22):
+      EEPROM.put(SPINDLE_DECEL_ADDRESS, (uint16_t)command_x);
+      break;
+    case (23):
+      EEPROM.put(SPINDLE_POLARITY_ADDRESS, (bool)command_x);
+      break;
+    case (31):
+      EEPROM.put(MICROSTEPS_ADDRESS, (uint8_t)command_x);
       break;
     case (99):
       loadDefaultSettings();
       break;
     default:
+      // printHelp();
       break;
     }
+
+    break;
   }
 
-  // Adjust settings
-
-  // Build Coils
-  float turns = 0.0;
-  float wire_gauge_mm = 0.0;
-  float coil_width = 0.0;
-  coilCharacterization(coil_width, wire_gauge_mm, turns, layers);
-
-  turnOnSteppers();
   feederHomming();
-  buildCoil();
-  turnOffSteppers();
+}
+
+void printHelp(char _command_char = ' ', uint8_t _command_num = 0)
+{
+  // Print help menu or ussage
+  Serial.println();
 }
 
 void sendProgress()
@@ -553,8 +689,4 @@ void sendProgress()
   Serial.printf("Spindle\n\tTurns: %d,\tSpeed: %d\n",
                 spindle.getPosition() / STEPS_PER_REV, speed);
   Serial.println();
-}
-
-void changeSettings()
-{
 }

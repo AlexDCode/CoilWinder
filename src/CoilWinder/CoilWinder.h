@@ -5,11 +5,11 @@ void setMicrostepping(uint16_t _Microstep, uint16_t _ms1_pin, uint16_t _ms2_pin,
 void feederHomming();
 void turnOnSteppers();
 void turnOffSteppers();
-void coilCharacterization(float _coil_width, float _wire_gauge_mm, float _turns, uint32_t &_layers);
+void coilCharacterization(float _coil_width, float _wire_gauge_mm, float _turns, float &_turns_per_layer, uint32_t &_layers);
 void buildCoil();
 void decodeSerial();
+void printHelp(char _command_char = ' ', uint8_t _command_num = 0);
 void sendProgress();
-void changeSettings();
 
 // Define Pin
 #define RX_PIN 0         // Pin for receiving UART data
@@ -35,10 +35,18 @@ void changeSettings();
 
 // Define Stepper Motors Characteristics
 #define MOTOR_STEPS 200 // Motor steps per revolution
-#define MICROSTEPS 16
 #define STEP_PULSE_WIDTH 2
 #define SPEED_UPDATE_PERIOD 2000
 #define LEADSCREW_PITCH 8.0
+#define FEEDER_RPM_DEFAULT 25000
+#define SPINDLE_RPM_DEFAULT 25000
+#define FEEDER_ACCEL_DEFAULT 5000
+#define FEEDER_DECEL_DEFAULT 3000
+#define SPINDLE_ACCEL_DEFAULT 5000
+#define SPINDLE_DECEL_DEFAULT 3000
+#define FEEDER_POLARITY_DEFAULT false
+#define SPINDLE_POLARITY_DEFAULT false
+#define MICROSTEPS_DEFAULT 16
 
 // Define Communication parameters
 #define SERIAL_BAUD_RATE 115200
@@ -52,3 +60,4 @@ void changeSettings();
 #define SPINDLE_DECEL_ADDRESS 160
 #define FEEDER_POLARITY_ADDRESS 192
 #define SPINDLE_POLARITY_ADDRESS 193
+#define MICROSTEPS_ADDRESS 194

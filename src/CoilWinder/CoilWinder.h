@@ -1,11 +1,11 @@
 void righEndStop();
 void leftEndStop();
 void loadDefaultSettings();
-void setMicrostepping(int _Microstep, int _ms1_pin, int _ms2_pin, int _ms3_pin);
+void setMicrostepping(uint16_t _Microstep, uint16_t _ms1_pin, uint16_t _ms2_pin, uint16_t _ms3_pin);
 void feederHomming();
 void turnOnSteppers();
 void turnOffSteppers();
-void coilCharacterization(float _coil_width, float _coil_height, float _wire_gauge_mm, float _turns, int &_layers);
+void coilCharacterization(float _coil_width, float _wire_gauge_mm, float _turns, uint32_t &_layers);
 void buildCoil();
 void decodeSerial();
 void sendProgress();
@@ -37,7 +37,7 @@ void changeSettings();
 #define MOTOR_STEPS 200 // Motor steps per revolution
 #define MICROSTEPS 16
 #define STEP_PULSE_WIDTH 2
-#define SPEED_UPDATE_PERIOD 2
+#define SPEED_UPDATE_PERIOD 2000
 #define LEADSCREW_PITCH 8.0
 
 // Define Communication parameters
@@ -50,3 +50,5 @@ void changeSettings();
 #define FEEDER_DECEL_ADDRESS 96
 #define SPINDLE_ACCEL_ADDRESS 128
 #define SPINDLE_DECEL_ADDRESS 160
+#define FEEDER_POLARITY_ADDRESS 192
+#define SPINDLE_POLARITY_ADDRESS 193

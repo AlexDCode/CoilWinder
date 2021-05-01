@@ -8,8 +8,12 @@ void turnOffSteppers();
 void coilCharacterization(float _coil_width, float _wire_gauge_mm, float _turns, float &_turns_per_layer, uint32_t &_layers);
 void buildCoil();
 void decodeSerial();
+void decodeCommand(char command, int16_t value);
 void printHelp(char _command_char = ' ', uint8_t _command_num = 0);
 void sendProgress();
+void receiveCommand();
+void sendCommand(char _command, int16_t _value = 0);
+void requestData(byte _address, char _command, int16_t _response[]);
 
 // Define Pin
 #define RX_PIN 0         // Pin for receiving UART data
@@ -42,14 +46,18 @@ void sendProgress();
 #define SPINDLE_RPM_DEFAULT 25000
 #define FEEDER_ACCEL_DEFAULT 5000
 #define FEEDER_DECEL_DEFAULT 3000
+#define FEEDER_OFFSET_DEFAULT 0
 #define SPINDLE_ACCEL_DEFAULT 5000
 #define SPINDLE_DECEL_DEFAULT 3000
 #define FEEDER_POLARITY_DEFAULT false
 #define SPINDLE_POLARITY_DEFAULT false
 #define MICROSTEPS_DEFAULT 16
+#define SPEED_FACTOR_DEFAULT 1
 
 // Define Communication parameters
 #define SERIAL_BAUD_RATE 115200
+#define COIL_WINDER_I2C_ADDRESS 0x07
+#define COMMAND_SIZE (8 + 16) / 8 // 8 bits for command and 16 for response. Divide by 8 to get bytes
 
 // EEPROM Variable Mapping
 #define FEEDER_RPM_ADDRESS 0
@@ -61,3 +69,5 @@ void sendProgress();
 #define FEEDER_POLARITY_ADDRESS 192
 #define SPINDLE_POLARITY_ADDRESS 193
 #define MICROSTEPS_ADDRESS 194
+#define FEEDER_OFFSET_ADDRESS 202
+#define SPEED_FACTOR_ADDRESS 234

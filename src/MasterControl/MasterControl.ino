@@ -43,6 +43,7 @@
 #include <LiquidMenu.h> // Lib for Menu (https://github.com/VasilKalchev/LiquidMenu)
 #include <Wire.h>       // For I2C Communication
 #include <SerLCD.h>     // SparkFun Quiic LCD Library http://librarymanager/All#SparkFun_SerLCD
+#include "MasterControl.h"
 
 SerLCD lcd; // Initialize the library with default I2C address 0x72
 
@@ -97,14 +98,17 @@ LiquidScreen secondary_screen(analogReading_line);
 */
 LiquidMenu menu(lcd);
 
+int16_t response[COMMAND_SIZE];
+
 void setup()
 {
-    // Serial.begin(250000);
-
+    // Serial.begin(BAUD_RATE);
     pinMode(analogPin, INPUT);
 
     // Initalize I2C communication
     Wire.begin();
+    Wire.onReceive(receiveCommand);
+    // Wire.onRequest(onRequest);
 
     lcd.begin(Wire); //Set up the LCD for I2C communication
 
@@ -135,3 +139,86 @@ void loop()
         menu.next_screen();
     }
 }
+
+void receiveCommand()
+{
+    // Read commands on the I2C bus
+    int i = 0;
+    while (Wire.available() && i <= COMMAND_SIZE)
+    {
+        response[i] += Wire.read();
+        i++;
+    }
+}
+
+void sendCommand(char _command, int16_t _value = 0)
+{
+    // Send commands to the coil winder with the corresponding value
+    // Format answer as array and separate the integer into two bytes
+    byte command[COMMAND_SIZE] = {_command, _value & 0x255, _value >> 8 & 0x255};
+
+    Wire.beginTransmission(COIL_WINDER_I2C_ADDRESS);
+    Wire.write(command, sizeof(command));
+    Wire.endTransmission();
+}
+
+void requestData(byte _address, char _command, int16_t _response[COMMAND_SIZE])
+{
+    sendCommand(_command);
+
+    // Process data requests from the coil winder
+    Wire.requestFrom(_address, COMMAND_SIZE);
+
+    response[COMMAND_SIZE] = {0};
+
+    int i = 0;
+    while (Wire.available() && i <= COMMAND_SIZE)
+    {
+        response[i] += Wire.read();
+        i++;
+    }
+
+    // Convert the two bytes to an integer response
+    response[COMMAND_SIZE - 1] = response[COMMAND_SIZE - 1] << 8 | response[COMMAND_SIZE];
+    response[COMMAND_SIZE] = 0;
+}
+
+/*
+  ?Command Instruction Set:
+      (char)command (uint16_t)
+    
+    000 -> Print help message in serial
+    001 -> Define Coil Width
+    002 -> Define Coil Wire Gauge in mm
+    003 -> Define Coil Turns
+    010 -> Characterize Coil with saved parameters
+    011 -> Build Coil with saved parameters
+    020 -> Get saved coil_width
+    021 -> Get saved wire_gauge_mm
+    022 -> Get saved turns
+    023 -> Get calculated number of layers
+    024 -> Get calculated turns per layer
+    025 -> Get calculated coil height
+    030 -> Turn Steppers Off
+    031 -> Turn Steppers On
+    032 -> Home the feeder
+    033 -> Get leading motor speed
+    034 -> Get feeder position in steps
+    035 -> Get spindle position in steps
+    036 -> Get completed turns
+    040 -> Change Feeder RPM
+    041 -> Change Feeder ACCEL
+    042 -> Change Feeder DECEL
+    043 -> Change Feeder POLARITY
+    044 -> Change Spindle RPM
+    045 -> Change Spindle ACCEL
+    046 -> Change Spindle DECEL
+    047 -> Change Spindle POLARITY
+    048 -> Change Microstepping Resolution
+    050 -> Change feeder offset
+    051 -> Change speed factor percentage
+    051 -> Get speed factor percentage
+    099 -> Load Default Setings
+    117 -> Message
+    118 -> Response with required data
+*/

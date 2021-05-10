@@ -108,7 +108,6 @@ void setup()
     // Initalize I2C communication
     Wire.begin();
     Wire.onReceive(receiveCommand);
-    // Wire.onRequest(onRequest);
 
     lcd.begin(Wire); //Set up the LCD for I2C communication
 
@@ -140,52 +139,59 @@ void loop()
     }
 }
 
-void receiveCommand()
+void sendCommand(int16_t _command, int16_t _value = 0)
 {
-    // Read commands on the I2C bus
-    int i = 0;
-    while (Wire.available() && i <= COMMAND_SIZE)
-    {
-        response[i] += Wire.read();
-        i++;
-    }
-}
+    /*
+        Send commands to the coil winder with the corresponding value
+    */
 
-void sendCommand(char _command, int16_t _value = 0)
-{
-    // Send commands to the coil winder with the corresponding value
-    // Format answer as array and separate the integer into two bytes
-    byte command[COMMAND_SIZE] = {_command, _value & 0x255, _value >> 8 & 0x255};
+    // Converts the 16 bit integers to bytes
+    byte instruction[] = {(_command >> 8) & 0xFF, _command & 0xFF, (_value >> 8) & 0xFF, _value & 0xFF};
 
+    // Sends the instructiion
     Wire.beginTransmission(COIL_WINDER_I2C_ADDRESS);
-    Wire.write(command, sizeof(command));
+    Wire.write(instruction, sizeof(instruction));
     Wire.endTransmission();
 }
 
-void requestData(byte _address, char _command, int16_t _response[COMMAND_SIZE])
+void requestData(byte _address, int16_t _command)
 {
+    /*
+        Sends a command and reads the response
+    */
+
+    // Send the command
     sendCommand(_command);
 
-    // Process data requests from the coil winder
-    Wire.requestFrom(_address, COMMAND_SIZE);
+    // Request the response
+    Wire.requestFrom((uint8_t)_address, (uint8_t)(RESPONSE_SIZE));
+}
 
-    response[COMMAND_SIZE] = {0};
+void receiveCommand(int numBytes)
+{
+    /*
+        Read commands on the I2C bus
+    */
 
+    // Initialiaze array to receive the response in bytes
+    byte instruction[] = {0, 0, 0, 0};
+
+    // Reads the inputs and saves it to the instruction buffer
     int i = 0;
-    while (Wire.available() && i <= COMMAND_SIZE)
+    while (Wire.available() && i < RESPONSE_SIZE)
     {
-        response[i] += Wire.read();
+        instruction[i] = Wire.read();
         i++;
     }
 
-    // Convert the two bytes to an integer response
-    response[COMMAND_SIZE - 1] = response[COMMAND_SIZE - 1] << 8 | response[COMMAND_SIZE];
-    response[COMMAND_SIZE] = 0;
+    // Converts the bytes to 16 bit integers and saves to the global response array
+    response[0] = (instruction[0] << 8) | instruction[1];
+    response[1] = (instruction[2] << 8) | instruction[3];
 }
 
 /*
   ?Command Instruction Set:
-      (char)command (uint16_t)
+      (int16_t)command (int16_t)
     
     000 -> Print help message in serial
     001 -> Define Coil Width

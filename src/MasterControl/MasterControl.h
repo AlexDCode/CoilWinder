@@ -1,8 +1,8 @@
-void receiveCommand();
-void sendCommand(char _command, int16_t _value = 0);
-void requestData(byte _address, char _command, int16_t _response[]);
-
+void receiveCommand(int numBytes);
+void sendCommand(int16_t _command, int16_t _value = 0);
+void requestData(byte _address, int16_t _command, int16_t _response[]);
 // Define Communication parameters
 #define SERIAL_BAUD_RATE 115200
-#define COIL_WINDER_I2C_ADDRESS 0x07
-#define COMMAND_SIZE (8 + 16) / 8 // 8 bits for command and 16 for response. Divide by 8 to get bytes
+#define COIL_WINDER_I2C_ADDRESS 0x70
+#define COMMAND_SIZE 2  // 2 elements of 16 bits each
+#define RESPONSE_SIZE 4 // 2 bytes of command and 2 bytes of value

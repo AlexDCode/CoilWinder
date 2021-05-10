@@ -9,11 +9,11 @@ void coilCharacterization(float _coil_width, float _wire_gauge_mm, float _turns,
 void buildCoil();
 void decodeSerial();
 void decodeCommand(char command, int16_t value);
-void printHelp(char _command_char = ' ', uint8_t _command_num = 0);
+void printHelp();
 void sendProgress();
-void receiveCommand();
-void sendCommand(char _command, int16_t _value = 0);
-void requestData(byte _address, char _command, int16_t _response[]);
+void receiveCommand(int numBytes);
+void setResponse(int16_t _command, int16_t _value);
+void sendResponse();
 
 // Define Pin
 #define RX_PIN 0         // Pin for receiving UART data
@@ -56,9 +56,9 @@ void requestData(byte _address, char _command, int16_t _response[]);
 
 // Define Communication parameters
 #define SERIAL_BAUD_RATE 115200
-#define COIL_WINDER_I2C_ADDRESS 0x07
-#define COMMAND_SIZE (8 + 16) / 8 // 8 bits for command and 16 for response. Divide by 8 to get bytes
-
+#define COIL_WINDER_I2C_ADDRESS 0x70
+#define COMMAND_SIZE 2  // 2 elements of 16 bits each
+#define RESPONSE_SIZE 4 // 2 bytes of command and 2 bytes of value
 // EEPROM Variable Mapping
 #define FEEDER_RPM_ADDRESS 0
 #define SPINDLE_RPM_ADDRESS 32

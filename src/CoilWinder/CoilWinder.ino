@@ -3,18 +3,18 @@
   ELEN 447-131
   Prof. Miguel Goenaga
   
-  Modified April 7, 2021
-  by: Alex D. Santiago Vargas & Gretchell M. Hiraldo Martinez & Gabriel Vega Rodríguez
+  Modified May 10, 2021
+  by: Alex D. Santiago Vargas & Gretchell M. Hiraldo Martinez & Gabriel Vera Rodríguez
 
-  This system controls the winding process according to the inputs received by the MasterController
-  The commands can be sent via any device with serial communication.
+  This system controls the winding process according to the inputs received by the MasterControl
+  The commands can be sent via any device with serial communication or I2C.
 
 
   ?Hardware Connections:
       From Circuit Pinout.docx
 
   ?Command Instruction Set:
-      (int16_t)command (int16_t)
+      (int16_t)command (int16_t)value
     
     000 -> Print help message in serial
     001 -> Define Coil Width
@@ -69,13 +69,13 @@
 #include <vector>
 
 // Stepper Motor Settings variables
-int32_t FEEDER_RPM;
-int32_t SPINDLE_RPM;
-uint32_t FEEDER_ACCEL;
-uint32_t FEEDER_DECEL;
-uint32_t SPINDLE_ACCEL;
-uint32_t FEEDER_OFFSET;
-uint32_t SPINDLE_DECEL;
+int16_t FEEDER_RPM;
+int16_t SPINDLE_RPM;
+uint16_t FEEDER_ACCEL;
+uint16_t FEEDER_DECEL;
+uint16_t SPINDLE_ACCEL;
+uint16_t FEEDER_OFFSET;
+uint16_t SPINDLE_DECEL;
 boolean FEEDER_POLARITY;
 boolean SPINDLE_POLARITY;
 uint8_t MICROSTEPS;
@@ -118,6 +118,8 @@ void setup()
   Wire.begin(COIL_WINDER_I2C_ADDRESS);
   Wire.onReceive(receiveCommand);
   Wire.onRequest(sendResponse);
+  Wire.setSDA(SDA_PIN);
+  Wire.setSCL(SCL_PIN);
 
   // Load settings from the EEPROM memory to save when power is lost
   EEPROM.get(FEEDER_RPM_ADDRESS, FEEDER_RPM);
@@ -153,17 +155,17 @@ void setup()
   // Load settings into stepper motor objects
   feeder
       //.setPullInSpeed(10)           // steps/s
-      .setMaxSpeed(FEEDER_RPM * SPEED_FACTOR)       // steps/s
-      .setAcceleration(FEEDER_ACCEL)                // steps/s^2
-      .setInverseRotation(FEEDER_POLARITY)          // Software will run stepper forward
-      .setStepPinPolarity(FEEDER_POLARITY_ADDRESS); // driver expects active high pulses
+      .setMaxSpeed(FEEDER_RPM * SPEED_FACTOR) // steps/s
+      .setAcceleration(FEEDER_ACCEL)          // steps/s^2
+      .setInverseRotation(FEEDER_POLARITY);   // Software will run stepper forward
+                                              // .setStepPinPolarity(FEEDER_POLARITY);   // driver expects active high pulses
 
   spindle
       //.setPullInSpeed(10)           // steps/s
-      .setMaxSpeed(SPINDLE_RPM * SPEED_FACTOR)       // steps/s
-      .setAcceleration(SPINDLE_ACCEL)                // steps/s^2
-      .setInverseRotation(SPINDLE_POLARITY)          // Software will run stepper forward
-      .setStepPinPolarity(SPINDLE_POLARITY_ADDRESS); // driver expects active high pulses
+      .setMaxSpeed(SPINDLE_RPM * SPEED_FACTOR) // steps/s
+      .setAcceleration(SPINDLE_ACCEL)          // steps/s^2
+      .setInverseRotation(SPINDLE_POLARITY);   // Software will run stepper forward
+                                               // .setStepPinPolarity(SPINDLE_POLARITY);   // driver expects active high pulses
 
   // Set the microstepping pins states
   setMicrostepping(MICROSTEPS, FEEDER_MS1_PIN, FEEDER_MS2_PIN, FEEDER_MS3_PIN);
@@ -172,8 +174,10 @@ void setup()
   // loadDefaultSettings(); // Load Default Settings at startup; Comment to avoid
 
   // Attach falling hardware interrupts for end stops that are normally high, active low
-  attachInterrupt(digitalPinToInterrupt(END_STOP_1_PIN), righEndStop, FALLING);
-  attachInterrupt(digitalPinToInterrupt(END_STOP_2_PIN), leftEndStop, FALLING);
+  attachInterrupt(digitalPinToInterrupt(END_STOP_1_PIN), emergencyStop, FALLING);
+  attachInterrupt(digitalPinToInterrupt(END_STOP_2_PIN), emergencyStop, FALLING);
+
+  printHelp();
 }
 
 void loop()
@@ -183,8 +187,11 @@ void loop()
     feederHomming();
 
   // If data is incomming decode the instruction and execute accordingly
-  if (Serial.available() > 8)
+  if (Serial.available())
     decodeSerial();
+
+  coilCharacterization(100, 1, 500, turns_per_layer, layers);
+  buildCoil();
 }
 
 void loadDefaultSettings()
@@ -271,23 +278,10 @@ void setMicrostepping(uint16_t _Microstep, uint16_t _ms1_pin, uint16_t _ms2_pin,
   digitalWrite(_ms3_pin, (_microsteppingMask & 0b100) >> 2);
 }
 
-void righEndStop()
+void emergencyStop()
 {
   /*
-    When the right end stop falls, activates this Interrupt Service Routine
-    to innmediatly stop the winder no matter what, possibly missing steps
-    from sudden braking. Hence it raises the homingRequired flag to home
-    before running again
-  */
-
-  step_controller.emergencyStop();
-  homingRequired = true;
-}
-
-void leftEndStop()
-{
-  /*
-    When the left end stop falls, activates this Interrupt Service Routine
+    When an end stop falls, activates this Interrupt Service Routine
     to innmediatly stop the winder no matter what, possibly missing steps
     from sudden braking. Hence it raises the homingRequired flag to home
     before running again
@@ -471,12 +465,11 @@ void buildCoil()
   // Iterate for all the layers and execute the steps established in the motor step vectors
   for (uint32_t i = 0; i < layers; i++)
   {
-    current_layer = i++; // Set current layer
+    current_layer = i + 1; // Set current layer
 
     // Set the steps from iteration element to the feeder and spindle
     feeder.setTargetRel(int32_t(coil_feederSteps[i]) + FEEDER_OFFSET);
     spindle.setTargetRel(int32_t(coil_spindleSteps[i]));
-
     // If no homing is required or the motors are executing a movement start the layer winding
     if (!homingRequired && !step_controller.isRunning())
     {
@@ -507,13 +500,10 @@ void buildCoil()
 void decodeSerial()
 {
 
-  if (Serial.available() >= COMMAND_SIZE)
-  {
-    instruction[0] = (int16_t)Serial.readStringUntil(',').toInt();
-    instruction[1] = (int16_t)Serial.readStringUntil('\n').toInt();
-  }
+  instruction[0] = (int16_t)Serial.readStringUntil(',').toInt();
+  instruction[1] = (int16_t)Serial.readStringUntil(';').toInt();
 
-  Serial.printf("Received Command: %d with Value: %d", instruction[0], instruction[1]);
+  Serial.printf("\nReceived Command: %d with Value: %d\n", instruction[0], instruction[1]);
   decodeCommand(instruction[0], instruction[1]);
 }
 
@@ -663,7 +653,7 @@ void decodeCommand(int16_t _command, int16_t _value)
     else if (_value < 0)
       _value = 0;
 
-    EEPROM.put(SPEED_FACTOR_ADDRESS, (uint8_t)_value / 100);
+    EEPROM.put(SPEED_FACTOR_ADDRESS, (float)_value / 100);
     EEPROM.get(SPEED_FACTOR_ADDRESS, SPEED_FACTOR);
     feeder.setMaxSpeed(FEEDER_RPM * SPEED_FACTOR);
     spindle.setMaxSpeed(SPINDLE_RPM * SPEED_FACTOR);
@@ -685,6 +675,7 @@ void decodeCommand(int16_t _command, int16_t _value)
     // Command will be used when sending responses
     break;
   default:
+    Serial.println(F("The command is not valid!\n"));
     printHelp();
     break;
   }
@@ -693,7 +684,6 @@ void decodeCommand(int16_t _command, int16_t _value)
 void printHelp()
 {
   // Print help menu or ussage
-  Serial.println(F("The command is not valid!\n"));
   Serial.println(F("Command Instruction Set:"));
   Serial.println(F("\t(int16_t)command (int16_t)value"));
 
@@ -741,25 +731,25 @@ void sendProgress()
   Serial.printf("Feeder\n\tPosition: %d,\tSpeed: %d",
                 feeder.getPosition(), (speed * (FEEDER_RPM / SPINDLE_RPM)));
   Serial.println();
-  setResponse(33, speed);
-  setResponse(34, feeder.getPosition());
+  // setResponse(33, speed);
+  // setResponse(34, feeder.getPosition());
 
   // Print the Spinde position and speed as its the leading motor
   Serial.printf("Spindle\n\tTurns: %d,\tSpeed: %d\n",
                 spindle.getPosition() / STEPS_PER_REV, speed);
   Serial.println();
-  setResponse(35, spindle.getPosition());
+  // setResponse(35, spindle.getPosition());
 
   Serial.printf("Current Layer: %d", current_layer);
-  Serial.printf("Completion: %d", (float)(current_layer / layers));
-  setResponse(36, current_layer);
+  Serial.printf("Completion: %d", (float)(turns / turns_per_layer));
+  // setResponse(36, current_layer);
 }
 
 void receiveCommand(int numBytes)
 {
   /*
-        Read commands on the I2C bus
-    */
+    Read commands on the I2C bus
+  */
 
   // Initialiaze array to receive the response in bytes
   for (int i = 0; i < RESPONSE_SIZE; i++)
@@ -792,6 +782,7 @@ void setResponse(int16_t _command, int16_t _value = 0)
   instruction[0] = _command;
   instruction[1] = _value;
 }
+
 void sendResponse()
 {
   // Sends the prepared command

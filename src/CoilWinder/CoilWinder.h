@@ -1,19 +1,18 @@
-void righEndStop();
-void leftEndStop();
-void loadDefaultSettings();
-void setMicrostepping(uint16_t _Microstep, uint16_t _ms1_pin, uint16_t _ms2_pin, uint16_t _ms3_pin);
-void feederHomming();
-void turnOnSteppers();
-void turnOffSteppers();
-void coilCharacterization(float _coil_width, float _wire_gauge_mm, float _turns, float &_turns_per_layer, uint32_t &_layers);
-void buildCoil();
-void decodeSerial();
-void decodeCommand(char command, int16_t value);
-void printHelp();
-void sendProgress();
-void receiveCommand(int numBytes);
-void setResponse(int16_t _command, int16_t _value);
-void sendResponse();
+void emergencyStop();                                                                                                         // Gabriel
+void loadDefaultSettings();                                                                                                   // Gabriel
+void setMicrostepping(uint16_t _Microstep, uint16_t _ms1_pin, uint16_t _ms2_pin, uint16_t _ms3_pin);                          // Alex
+void feederHomming();                                                                                                         // Alex
+void turnOnSteppers();                                                                                                        // Gabriel
+void turnOffSteppers();                                                                                                       // Gabriel
+void coilCharacterization(float _coil_width, float _wire_gauge_mm, float _turns, float &_turns_per_layer, uint32_t &_layers); // Alex
+void buildCoil();                                                                                                             // Alex
+void decodeSerial();                                                                                                          // Gabriel
+void decodeCommand(char command, int16_t value);                                                                              // Gabriel
+void printHelp();                                                                                                             // Gabriel
+void sendProgress();                                                                                                          // Gabriel
+void receiveCommand(int numBytes);                                                                                            // Alex
+void setResponse(int16_t _command, int16_t _value);                                                                           // Alex
+void sendResponse();                                                                                                          // Alex
 
 // Define Pin
 #define RX_PIN 0         // Pin for receiving UART data
@@ -36,6 +35,8 @@ void sendResponse();
 #define SPINDLE_SLP_PIN 34
 #define SPINDLE_STEP_PIN 37
 #define SPINDLE_DIR_PIN 36
+#define SDA_PIN 4
+#define SCL_PIN 3
 
 // Define Stepper Motors Characteristics
 #define MOTOR_STEPS 200 // Motor steps per revolution
@@ -59,6 +60,7 @@ void sendResponse();
 #define COIL_WINDER_I2C_ADDRESS 0x70
 #define COMMAND_SIZE 2  // 2 elements of 16 bits each
 #define RESPONSE_SIZE 4 // 2 bytes of command and 2 bytes of value
+
 // EEPROM Variable Mapping
 #define FEEDER_RPM_ADDRESS 0
 #define SPINDLE_RPM_ADDRESS 32

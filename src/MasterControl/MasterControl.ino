@@ -48,24 +48,6 @@
 SerLCD lcd; // Initialize the library with default I2C address 0x72
 
 /*
-    Variable 'analogReading' is later configured to be printed on the display.'
-    lastAnalogReading' is used to check if the variable has changed.
-*/
-const byte analogPin = A1;
-unsigned short analogReading = 0;
-unsigned short lastAnalogReading = 0;
-
-/*
-    Variables used for periodic execution of code. The first one is the period
-    in milliseconds and the second one is the last time the code executed.
-*/
-unsigned int period_check = 1000;
-unsigned long lastMs_check = 0;
-
-unsigned int period_nextScreen = 5000;
-unsigned long lastMs_nextScreen = 0;
-
-/*
     LiquidLine objects represent a single line of text and/or variables
     on the display. The first two parameters are the column and row from
     which the line starts, the rest of the parameters are the text and/or
@@ -73,9 +55,9 @@ unsigned long lastMs_nextScreen = 0;
 */
 // Here the line is set to column 1, row 0 and will print the passed
 // string and the passed variable.
-LiquidLine welcome_line1(1, 0, "LiquidMenu ", LIQUIDMENU_VERSION);
-// Here the column is 3, the row is 1 and the string is "Hello Menu".
-LiquidLine welcome_line2(3, 1, "Hello Menu");
+LiquidLine welcome_line1(1, 0, "Coil Winder v1.0");
+// Here the column is 3, the row is 2 and the string is "Hello Menu".
+LiquidLine welcome_line2(3, 2, "May 12, 2021");
 
 /*
     LiquidScreen objects represent a single screen. A screen is made of
@@ -86,9 +68,24 @@ LiquidLine welcome_line2(3, 1, "Hello Menu");
 // Here the LiquidLine objects are the two objects from above.
 LiquidScreen welcome_screen(welcome_line1, welcome_line2);
 
-// Here there is not only a text string but also a changing integer variable.
-LiquidLine analogReading_line(0, 0, "Analog: ", analogReading);
-LiquidScreen secondary_screen(analogReading_line);
+//Set up screem
+LiquidLine setup_line_setuptitle(1, 0, "Set-Up");
+LiquidLine setup_line_back(1, 1, "Back" );
+LiquidLine setup_line_coil_width(1, 2, "Coil Width (mm): ");
+LiquidLine setup_line_wire_gauge(1, 3, "Wire Gauge (mm): ");
+LiquidLine setup_line_turns(1, 4, "Turns: ");
+LiquidLine setup_line_start(1, 5, "Start");
+
+LiquidScreen setup_screen(setup_line_setuptitle, setup_line_back, setup_line_coil_width, setup_line_wire_gauge, setup_line_turns, setup_line_start);
+
+//Progress screen
+
+LiquidLine progress_line_progress(1,0, "Progress Screen");
+LiquidLine progress_line_percentage(1,1, "Progress %: ");
+LiquidLine progress_line_stop(1,3, "Stop");
+
+LiquidScreen progress_screen(progress_line_progress, progress_line_percentage, progress_line_stop);
+
 
 /*
     The LiquidMenu object combines the LiquidScreen objects to form the
@@ -99,11 +96,13 @@ LiquidScreen secondary_screen(analogReading_line);
 LiquidMenu menu(lcd);
 
 int16_t response[COMMAND_SIZE];
+unsigned long lastMs;
+int16_t dt = 5000;
+int screen_number = 0;
 
 void setup()
 {
     // Serial.begin(BAUD_RATE);
-    pinMode(analogPin, INPUT);
 
     // Initalize I2C communication
     Wire.begin();
@@ -113,29 +112,31 @@ void setup()
 
     // This is the method used to add a screen object to the menu.
     menu.add_screen(welcome_screen);
-    menu.add_screen(secondary_screen);
+    menu.add_screen(setup_screen);
+    menu.add_screen(progress_screen);
+
+    menu.change_screen(welcome_screen);
+
+    delay(3000);
+    lastMs = millis();
 }
 
 void loop()
 {
     // Periodic reading of the analog pin.
-    if (millis() - lastMs_check > period_check)
+    if (millis() - lastMs > dt)
     {
-        lastMs_check = millis();
-        analogReading = analogRead(analogPin);
-        // Check if the analog value have changed and update the display if it has
-        if (analogReading != lastAnalogReading)
+        if (screen_number == 0)
         {
-            lastAnalogReading = analogReading;
-            menu.update();
+            screen_number = 1;
+            menu.change_screen(setup_screen);
         }
-    }
+        else 
+        {
+            screen_number = 0;
+            menu.change_screen(progress_screen);
+        }
 
-    // Periodic switching to the next screen.
-    if (millis() - lastMs_nextScreen > period_nextScreen)
-    {
-        lastMs_nextScreen = millis();
-        menu.next_screen();
     }
 }
 

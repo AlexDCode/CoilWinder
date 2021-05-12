@@ -68,23 +68,30 @@ LiquidLine welcome_line2(3, 2, "May 12, 2021");
 // Here the LiquidLine objects are the two objects from above.
 LiquidScreen welcome_screen(welcome_line1, welcome_line2);
 
-//Set up screem
+//Set up screen
 LiquidLine setup_line_setuptitle(1, 0, "Set-Up");
 LiquidLine setup_line_back(1, 1, "Back" );
 LiquidLine setup_line_coil_width(1, 2, "Coil Width (mm): ");
 LiquidLine setup_line_wire_gauge(1, 3, "Wire Gauge (mm): ");
-LiquidLine setup_line_turns(1, 4, "Turns: ");
-LiquidLine setup_line_start(1, 5, "Start");
+LiquidLine setup_line_turns(1, 0, "Turns: ");
+LiquidLine setup_line_start(1, 1, "Start");
 
-LiquidScreen setup_screen(setup_line_setuptitle, setup_line_back, setup_line_coil_width, setup_line_wire_gauge, setup_line_turns, setup_line_start);
+LiquidScreen setup_screen(setup_line_setuptitle, setup_line_back, setup_line_coil_width, setup_line_wire_gauge);
+setup_screen.at_line(setup_line_turns);
+setup_screen.at_line(setup_line_start);
 
 //Progress screen
-
 LiquidLine progress_line_progress(1,0, "Progress Screen");
 LiquidLine progress_line_percentage(1,1, "Progress %: ");
 LiquidLine progress_line_stop(1,3, "Stop");
 
 LiquidScreen progress_screen(progress_line_progress, progress_line_percentage, progress_line_stop);
+
+
+//determine sentido que se gira el encoder
+int clk_state;
+int clk_laststate;
+
 
 
 /*
@@ -93,15 +100,50 @@ LiquidScreen progress_screen(progress_line_progress, progress_line_percentage, p
     using menu.add_screen(someScreen_object);. This object is used to
     control the menu, for example: menu.next_screen(), menu.switch_focus()...
 */
-LiquidMenu menu(lcd);
+
+//tets
+LiquidMenu menu(welcome_screen, setup_screen, progress_screen);
 
 int16_t response[COMMAND_SIZE];
-unsigned long lastMs;
-int16_t dt = 5000;
-int screen_number = 0;
 
 void setup()
 {
+//greth editing
+pinMode(SW_PIN,INPUT_PULLUP);
+
+
+//identificar a que lado aparece la flecha setup screen
+setup_line_back.set_focusPosition(Position::LEFT);
+setup_line_coil_width.set_focusPosition(Position::LEFT);
+setup_line_wire_gauge.set_focusPosition(Position::LEFT);
+setup_line_turns.set_focusPosition(Position::LEFT);
+setup_line_start.set_focusPosition(Position::LEFT);
+//attach funcion a cada linea para cuando se seleccione en el menu .attach_function(identifica funcion, nobre de la funcion)
+setup_line_back.attach_function(1, );
+setup_line_coil_width.attach_function(1, );
+setup_line_wire_gauge.attach_function(1, );
+setup_line_turns.attach_function(1, );
+setup_line_start.attach_function(1, );
+
+//menu.add_screen(setup_screen);
+
+//identificar a que lado aparece la flecha progress screen
+progress_line_stop.set_focusPosition(Position::LEFT);
+//attach funcion a cada linea para cuando se seleccione en el menu .attach_function(identifica funcion, nobre de la funcion)
+progress_line_stop.attach_function(1, emergencyStop());
+
+//menu.add_screen(progress_screen);
+
+//identificar cantidad de lines en la pantalla 
+setup_screen.set_displayLineCount(4);
+progress_screen.set_displayLineCount(4);
+
+//foco de menu en pocicion 0
+menu.set_focusedLine(1);
+
+menu.update();
+
+
     // Serial.begin(BAUD_RATE);
 
     // Initalize I2C communication
@@ -111,32 +153,62 @@ void setup()
     lcd.begin(Wire); //Set up the LCD for I2C communication
 
     // This is the method used to add a screen object to the menu.
-    menu.add_screen(welcome_screen);
-    menu.add_screen(setup_screen);
-    menu.add_screen(progress_screen);
+    // menu.add_screen(welcome_screen);
+    // menu.add_screen(setup_screen);
+    // menu.add_screen(progress_screen);
 
     menu.change_screen(welcome_screen);
 
     delay(3000);
-    lastMs = millis();
 }
 
 void loop()
 {
-    // Periodic reading of the analog pin.
-    if (millis() - lastMs > dt)
-    {
-        if (screen_number == 0)
-        {
-            screen_number = 1;
-            menu.change_screen(setup_screen);
-        }
-        else 
-        {
-            screen_number = 0;
-            menu.change_screen(progress_screen);
-        }
+//funcion para seleccionar opcion
+selectOption();
 
+//identificar el sentido del encoder
+clk_state = digitalRead(CLK_PIN);
+    if (clk_state != clk_laststate){
+        if(digitalRead(DT_PIN) != clk_state){
+            menu.switch_focus(false);
+        }
+        else{
+            menu.switch_focus(true);
+        }
+        menu.update();
+        clk_laststate = clk_state;
+    }
+}
+
+
+//************funciones for lines***************
+
+//funciones para lineas de setup screen
+void coil_width(){
+Serial.println("coil width function");
+}
+ void wire_gauge(){
+Serial.println("wire gauge function");
+ }
+
+void turns(){
+Serial.println("turns function");
+}
+
+void start(){
+menu.change_screen(LiquidScreen progress_screen);
+}
+
+void back(){
+menu.change_screen(menu.get_currentScreen()-1);
+}
+
+//Select with enter of line encoder 
+void selectOption(){
+    if (digitalRead(SW_PIN) == LOW){
+        menu.call_function(1);
+        delay(500);
     }
 }
 

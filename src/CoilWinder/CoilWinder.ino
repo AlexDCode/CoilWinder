@@ -94,7 +94,7 @@ Stepper spindle(SPINDLE_STEP_PIN, SPINDLE_DIR_PIN);
 StepControl step_controller(STEP_PULSE_WIDTH, SPEED_UPDATE_PERIOD); // Moving by position
 
 // Limit flag
-volatile bool homingRequired = false;
+volatile bool homingRequired = true;
 
 // Vectors to store stepper movements in steps. They are global so that they can be accessed by all the program
 std::vector<int32_t> coil_feederSteps;
@@ -102,7 +102,7 @@ std::vector<int32_t> coil_spindleSteps;
 
 // Store calculated coil parameters
 uint32_t layers;
-float turns;
+uint32_t turns;
 float coil_width;
 float wire_gauge_mm;
 float turns_per_layer;
@@ -113,6 +113,7 @@ void setup()
   // Start serial communication
   delay(1000);
   Serial.begin(SERIAL_BAUD_RATE);
+  Serial1.begin(SERIAL_BAUD_RATE);
 
   // Start I2C Communication
   Wire.begin(COIL_WINDER_I2C_ADDRESS);
@@ -151,6 +152,7 @@ void setup()
 
   // Other pins
   pinMode(LED_BUILTIN, OUTPUT);
+  pinMode(STATUS_LED_PIN_R, OUTPUT);
 
   // Load settings into stepper motor objects
   feeder
@@ -176,8 +178,10 @@ void setup()
   // Attach falling hardware interrupts for end stops that are normally high, active low
   attachInterrupt(digitalPinToInterrupt(END_STOP_1_PIN), emergencyStop, FALLING);
   attachInterrupt(digitalPinToInterrupt(END_STOP_2_PIN), emergencyStop, FALLING);
+  attachInterrupt(digitalPinToInterrupt(STOP_BTN), emergencyStop, FALLING);
 
   printHelp();
+  tone(BUZZER_PIN, 5000, 2000);
 }
 
 void loop()
@@ -187,11 +191,8 @@ void loop()
     feederHomming();
 
   // If data is incomming decode the instruction and execute accordingly
-  if (Serial.available())
+  if (Serial1.available())
     decodeSerial();
-
-  coilCharacterization(100, 1, 500, turns_per_layer, layers);
-  buildCoil();
 }
 
 void loadDefaultSettings()
@@ -359,23 +360,19 @@ void feederHomming()
   digitalWrite(SPINDLE_SLP_PIN, LOW); // Spindle Stepper Driver Sleep
 
   // Decrease the maximum speed and acceleration of the feeder by a factor
-  feeder.setMaxSpeed(FEEDER_RPM / 4);
-  feeder.setAcceleration(FEEDER_ACCEL / 4);
+  feeder.setMaxSpeed(FEEDER_RPM / 2);
+  feeder.setAcceleration(FEEDER_ACCEL / 2);
 
   // Read the state of the right end stop, its negated for programming logic because its active low
-  bool rightLimit = !digitalRead(END_STOP_1_PIN);
-
-  // Disable the interrupts during homing
-  noInterrupts();
-  cli();
+  boolean rightLimit = !digitalRead(END_STOP_1_PIN);
 
   // Move to the right until the right end stop is activated
+  feeder.setTargetRel(-500000);
+  step_controller.moveAsync(feeder);
   while (!rightLimit)
-  {
-    feeder.setTargetRel(-480000);
-    step_controller.moveAsync(feeder);
     rightLimit = !digitalRead(END_STOP_1_PIN);
-  }
+
+  step_controller.stop();
 
   // WHen is at the far most right, move step by step to the left until the end stop is deactivated
   while (rightLimit)
@@ -385,8 +382,8 @@ void feederHomming()
     rightLimit = !digitalRead(END_STOP_1_PIN);
   }
 
-  // Move an extra 5 steps as home position buffer
-  feeder.setTargetRel(5);
+  // Move extra steps as home position buffer
+  feeder.setTargetRel(FEEDER_OFFSET);
   step_controller.move(feeder);
 
   // Turn off all the steppers to avoid movement during home position reset
@@ -398,10 +395,6 @@ void feederHomming()
   digitalWrite(FEEDER_RST_PIN, HIGH); // Feeder Stepper Driver Reset
   // Get the current position in software and set is as the new one
   feeder.setPosition(feeder.getPosition());
-
-  // Enable the interrupts after homing
-  interrupts();
-  sei();
 
   // Set the feeder speed and acceleration to normal
   feeder.setMaxSpeed(FEEDER_RPM);
@@ -462,32 +455,34 @@ void buildCoil()
   // Home the feeder if needed
   if (homingRequired)
     feederHomming();
+
+  turnOnSteppers();
   // Iterate for all the layers and execute the steps established in the motor step vectors
   for (uint32_t i = 0; i < layers; i++)
   {
     current_layer = i + 1; // Set current layer
+    sendProgress();
 
     // Set the steps from iteration element to the feeder and spindle
-    feeder.setTargetRel(int32_t(coil_feederSteps[i]) + FEEDER_OFFSET);
+    feeder.setTargetRel(int32_t(coil_feederSteps[i]));
     spindle.setTargetRel(int32_t(coil_spindleSteps[i]));
     // If no homing is required or the motors are executing a movement start the layer winding
     if (!homingRequired && !step_controller.isRunning())
     {
+      tone(BUZZER_PIN, 5000, 500); //Buzzer Activation before starting wilding process
+      digitalWrite(STATUS_LED_PIN_R, HIGH);
+
       // Move the motors in sync but without blocking other code execution
       step_controller.moveAsync(feeder, spindle);
 
       // Set timer delay
-      uint16_t dt = 250;
+      uint16_t dt = 1000;
       uint16_t prev_time = millis();
 
       // While there is no homming needed and the controller is executing a move, send the progress via serial
-      while (!homingRequired && step_controller.isRunning())
+      while (step_controller.isRunning())
       {
-        if ((millis() - prev_time > dt))
-        {
-          sendProgress();
-          prev_time = millis();
-        }
+        delay(100);
       }
     }
     else
@@ -495,15 +490,22 @@ void buildCoil()
 
     delay(250);
   }
+
+  noTone(BUZZER_PIN);
+  digitalWrite(STATUS_LED_PIN_R, LOW);
+  turnOffSteppers();
 }
 
 void decodeSerial()
 {
+  instruction[0] = (int16_t)Serial1.readStringUntil(',').toInt();
+  instruction[1] = (int16_t)Serial1.readStringUntil(';').toInt();
 
-  instruction[0] = (int16_t)Serial.readStringUntil(',').toInt();
-  instruction[1] = (int16_t)Serial.readStringUntil(';').toInt();
+  Serial.print("\nReceived Command: ");
+  Serial.print(instruction[0]);
+  Serial.print(" with Value: ");
+  Serial.println(instruction[1]);
 
-  Serial.printf("\nReceived Command: %d with Value: %d\n", instruction[0], instruction[1]);
   decodeCommand(instruction[0], instruction[1]);
 }
 
@@ -518,31 +520,36 @@ void decodeCommand(int16_t _command, int16_t _value)
     break;
   case (1):
     // 001 -> Define Coil Width
-    coil_width = _value;
+    coil_width = _value / 10.0;
+    Serial.println(coil_width);
     break;
   case (2):
     // 002 -> Define Coil Wire Gauge in mm
-    wire_gauge_mm = _value;
+    wire_gauge_mm = _value / 1000.0;
+    Serial.println(wire_gauge_mm);
     break;
   case (3):
     // 003 -> Define Coil Turns
     turns = _value;
+    Serial.println(turns);
     break;
   case (10):
     // 010 -> Characterize Coil with saved parameters
     coilCharacterization();
+    Serial.println("Characterize");
     break;
   case (11):
     // 011 -> Build Coil with saved parameters
     buildCoil();
+    Serial.println("Build");
     break;
   case (20):
     // 020 -> Get saved coil_width
-    setResponse(118, coil_width);
+    setResponse(118, coil_width * 10.0);
     break;
   case (21):
     // 021 -> Get saved wire_gauge_mm
-    setResponse(118, wire_gauge_mm);
+    setResponse(118, wire_gauge_mm * 1000.0);
     break;
   case (22):
     // 022 -> Get saved turns
@@ -726,23 +733,10 @@ void printHelp()
 void sendProgress()
 {
   // Get current controller speed from the faster motor
-  int speed = step_controller.getCurrentSpeed();
-  // Print the Feeder position and speed ratio as its slower
-  Serial.printf("Feeder\n\tPosition: %d,\tSpeed: %d",
-                feeder.getPosition(), (speed * (FEEDER_RPM / SPINDLE_RPM)));
-  Serial.println();
-  // setResponse(33, speed);
-  // setResponse(34, feeder.getPosition());
-
-  // Print the Spinde position and speed as its the leading motor
-  Serial.printf("Spindle\n\tTurns: %d,\tSpeed: %d\n",
-                spindle.getPosition() / STEPS_PER_REV, speed);
-  Serial.println();
-  // setResponse(35, spindle.getPosition());
-
-  Serial.printf("Current Layer: %d", current_layer);
-  Serial.printf("Completion: %d", (float)(turns / turns_per_layer));
-  // setResponse(36, current_layer);
+  int progress_percentage = (int)((float)((uint32_t)(100 * current_layer / layers)));
+  // Print the leading motor speed
+  Serial.printf("%d,%d;\n", (int)progress_percentage, (int)(calculated_height * 1000.0));
+  Serial1.printf("%d,%d;\n", (int)progress_percentage, (int)(calculated_height * 1000.0));
 }
 
 void receiveCommand(int numBytes)

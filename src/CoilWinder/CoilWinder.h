@@ -37,17 +37,20 @@ void sendResponse();                                                            
 #define SPINDLE_DIR_PIN 36
 #define SDA_PIN 4
 #define SCL_PIN 3
+#define STOP_BTN 29
+#define BUZZER_PIN 30
+#define STATUS_LED_PIN_R 28
 
 // Define Stepper Motors Characteristics
 #define MOTOR_STEPS 200 // Motor steps per revolution
 #define STEP_PULSE_WIDTH 2
 #define SPEED_UPDATE_PERIOD 2000
 #define LEADSCREW_PITCH 8.0
-#define FEEDER_RPM_DEFAULT 25000
-#define SPINDLE_RPM_DEFAULT 25000
+#define FEEDER_RPM_DEFAULT 10000
+#define SPINDLE_RPM_DEFAULT 10000
 #define FEEDER_ACCEL_DEFAULT 5000
 #define FEEDER_DECEL_DEFAULT 3000
-#define FEEDER_OFFSET_DEFAULT 0
+#define FEEDER_OFFSET_DEFAULT 750
 #define SPINDLE_ACCEL_DEFAULT 5000
 #define SPINDLE_DECEL_DEFAULT 3000
 #define FEEDER_POLARITY_DEFAULT false

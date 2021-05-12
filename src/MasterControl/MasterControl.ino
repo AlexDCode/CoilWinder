@@ -47,6 +47,19 @@
 
 SerLCD lcd; // Initialize the library with default I2C address 0x72
 
+//determine sentido que se gira el encoder
+boolean clkState;
+boolean clkLastState;
+
+int16_t response[COMMAND_SIZE];
+uint16_t speed = 0;
+uint16_t turns = 800;
+float coil_width = 8.0;
+float wire_gauge_mm = 0.5;
+uint16_t current_layer = 1;
+uint16_t layers = 0;
+float calculated_height = 0.0;
+uint16_t progress_percentage = 0;
 /*
     LiquidLine objects represent a single line of text and/or variables
     on the display. The first two parameters are the column and row from
@@ -55,9 +68,9 @@ SerLCD lcd; // Initialize the library with default I2C address 0x72
 */
 // Here the line is set to column 1, row 0 and will print the passed
 // string and the passed variable.
-LiquidLine welcome_line1(1, 0, "Coil Winder v1.0");
+LiquidLine welcome_line1(2, 0, "Coil Winder v1.0");
 // Here the column is 3, the row is 2 and the string is "Hello Menu".
-LiquidLine welcome_line2(3, 2, "May 12, 2021");
+LiquidLine welcome_line2(4, 2, "May 12, 2021");
 
 /*
     LiquidScreen objects represent a single screen. A screen is made of
@@ -69,30 +82,21 @@ LiquidLine welcome_line2(3, 2, "May 12, 2021");
 LiquidScreen welcome_screen(welcome_line1, welcome_line2);
 
 //Set up screen
-LiquidLine setup_line_setuptitle(1, 0, "Set-Up");
-LiquidLine setup_line_back(1, 1, "Back" );
-LiquidLine setup_line_coil_width(1, 2, "Coil Width (mm): ");
-LiquidLine setup_line_wire_gauge(1, 3, "Wire Gauge (mm): ");
-LiquidLine setup_line_turns(1, 0, "Turns: ");
-LiquidLine setup_line_start(1, 1, "Start");
+LiquidLine setup_line_setuptitle(7, 0, "Set-Up");
+LiquidLine setup_line_back(1, 1, "Back");
+LiquidLine setup_line_coil_width(1, 1, "Width (mm): ", coil_width);
+LiquidLine setup_line_wire_gauge(1, 2, "Gauge (mm): ", wire_gauge_mm);
+LiquidLine setup_line_turns(1, 3, "Turns: ", turns);
+LiquidLine setup_line_start(1, 0, "Start");
 
-LiquidScreen setup_screen(setup_line_setuptitle, setup_line_back, setup_line_coil_width, setup_line_wire_gauge);
-setup_screen.at_line(setup_line_turns);
-setup_screen.at_line(setup_line_start);
+LiquidScreen setup_screen(setup_line_setuptitle, setup_line_coil_width, setup_line_wire_gauge, setup_line_turns);
 
 //Progress screen
-LiquidLine progress_line_progress(1,0, "Progress Screen");
-LiquidLine progress_line_percentage(1,1, "Progress %: ");
-LiquidLine progress_line_stop(1,3, "Stop");
+LiquidLine progress_line_percentage(1, 0, "Progress %: ", progress_percentage);
+LiquidLine progress_line_coil_height(1, 1, "Height (mm): ", calculated_height);
+LiquidLine progress_line_stop(1, 3, "Back");
 
-LiquidScreen progress_screen(progress_line_progress, progress_line_percentage, progress_line_stop);
-
-
-//determine sentido que se gira el encoder
-int clk_state;
-int clk_laststate;
-
-
+LiquidScreen progress_screen(progress_line_percentage, progress_line_coil_height, progress_line_stop);
 
 /*
     The LiquidMenu object combines the LiquidScreen objects to form the
@@ -100,49 +104,51 @@ int clk_laststate;
     using menu.add_screen(someScreen_object);. This object is used to
     control the menu, for example: menu.next_screen(), menu.switch_focus()...
 */
-
-//tets
-LiquidMenu menu(welcome_screen, setup_screen, progress_screen);
-
-int16_t response[COMMAND_SIZE];
+LiquidMenu menu(lcd);
 
 void setup()
 {
-//greth editing
-pinMode(SW_PIN,INPUT_PULLUP);
+    Serial.begin(SERIAL_BAUD_RATE);
+    // setup_screen.add_line(setup_line_turns);
+    setup_screen.add_line(setup_line_start);
 
+    setup_line_coil_width.set_decimalPlaces(1);
+    setup_line_wire_gauge.set_decimalPlaces(3);
+    progress_line_percentage.set_decimalPlaces(0);
+    progress_line_coil_height.set_decimalPlaces(1);
+    pinMode(BTN_A_PIN, INPUT_PULLUP);
+    pinMode(BTN_B_PIN, INPUT_PULLUP);
+    pinMode(BTN_C_PIN, INPUT_PULLUP);
+    pinMode(CLK_PIN, INPUT_PULLUP);
+    pinMode(DT_PIN, INPUT_PULLUP);
+    pinMode(SW_PIN, INPUT_PULLUP);
 
-//identificar a que lado aparece la flecha setup screen
-setup_line_back.set_focusPosition(Position::LEFT);
-setup_line_coil_width.set_focusPosition(Position::LEFT);
-setup_line_wire_gauge.set_focusPosition(Position::LEFT);
-setup_line_turns.set_focusPosition(Position::LEFT);
-setup_line_start.set_focusPosition(Position::LEFT);
-//attach funcion a cada linea para cuando se seleccione en el menu .attach_function(identifica funcion, nobre de la funcion)
-setup_line_back.attach_function(1, back());
-setup_line_coil_width.attach_function(1, coil_width());
-setup_line_wire_gauge.attach_function(1, wire_gauge());
-setup_line_turns.attach_function(1, turns());
-setup_line_start.attach_function(1, start());
+    //identificar a que lado aparece la flecha setup screen
+    setup_line_back.set_focusPosition(Position::LEFT);
+    setup_line_coil_width.set_focusPosition(Position::LEFT);
+    setup_line_wire_gauge.set_focusPosition(Position::LEFT);
+    setup_line_turns.set_focusPosition(Position::LEFT);
+    setup_line_start.set_focusPosition(Position::LEFT);
 
-//menu.add_screen(setup_screen);
+    //attach funcion a cada linea para cuando se seleccione en el menu .attach_function(identifica funcion, nobre de la funcion)
+    setup_line_back.attach_function(1, back);
+    setup_line_coil_width.attach_function(1, set_coil_width);
+    setup_line_wire_gauge.attach_function(1, set_wire_gauge);
+    setup_line_turns.attach_function(1, set_turns);
+    setup_line_start.attach_function(1, start);
 
-//identificar a que lado aparece la flecha progress screen
-progress_line_stop.set_focusPosition(Position::LEFT);
-//attach funcion a cada linea para cuando se seleccione en el menu .attach_function(identifica funcion, nobre de la funcion)
-progress_line_stop.attach_function(1, emergencyStop());
+    //menu.add_screen(setup_screen);
 
-//menu.add_screen(progress_screen);
+    //identificar a que lado aparece la flecha progress screen
+    progress_line_stop.set_focusPosition(Position::LEFT);
+    //attach funcion a cada linea para cuando se seleccione en el menu .attach_function(identifica funcion, nobre de la funcion)
+    progress_line_stop.attach_function(1, stop);
 
-//identificar cantidad de lines en la pantalla 
-setup_screen.set_displayLineCount(4);
-progress_screen.set_displayLineCount(4);
+    //menu.add_screen(progress_screen);
 
-//foco de menu en pocicion 0
-menu.set_focusedLine(1);
-
-menu.update();
-
+    //identificar cantidad de lines en la pantalla
+    setup_screen.set_displayLineCount(4);
+    progress_screen.set_displayLineCount(4);
 
     // Serial.begin(BAUD_RATE);
 
@@ -153,63 +159,175 @@ menu.update();
     lcd.begin(Wire); //Set up the LCD for I2C communication
 
     // This is the method used to add a screen object to the menu.
-    // menu.add_screen(welcome_screen);
-    // menu.add_screen(setup_screen);
-    // menu.add_screen(progress_screen);
+    menu.add_screen(welcome_screen);
+    menu.add_screen(setup_screen);
+    menu.add_screen(progress_screen);
 
-    menu.change_screen(welcome_screen);
-
+    menu.change_screen(1);
+    // menu.update();
     delay(3000);
+
+    menu.change_screen(2);
+    menu.set_focusedLine(0);
+
+    clkLastState = digitalRead(CLK_PIN);
 }
 
 void loop()
 {
-//funcion para seleccionar opcion
-selectOption();
+    //funcion para seleccionar opcion
+    if (!digitalRead(BTN_B_PIN))
+        menu.call_function(1);
+    if (!digitalRead(SW_PIN))
+        menu.call_function(1);
 
-//identificar el sentido del encoder
-clk_state = digitalRead(CLK_PIN);
-    if (clk_state != clk_laststate){
-        if(digitalRead(DT_PIN) != clk_state){
+    //identificar el sentido del encoder
+    if (!digitalRead(BTN_A_PIN))
+        menu.switch_focus(false);
+
+    if (!digitalRead(BTN_C_PIN))
+        menu.switch_focus(true);
+
+    clkState = digitalRead(CLK_PIN);
+    if ((clkState != clkLastState))
+    {
+        if (digitalRead(DT_PIN) != clkState)
             menu.switch_focus(false);
-        }
-        else{
+        else
             menu.switch_focus(true);
-        }
+
+        clkLastState = digitalRead(CLK_PIN);
+    }
+
+    if (Serial.available())
+    {
+        decodeSerial();
         menu.update();
-        clk_laststate = clk_state;
     }
 }
-
 
 //************funciones for lines***************
 
 //funciones para lineas de setup screen
-void coil_width(){
-Serial.println("coil width function");
-}
- void wire_gauge(){
-Serial.println("wire gauge function");
- }
+void set_coil_width()
+{
+    delay(500);
+    while (digitalRead(BTN_B_PIN) && digitalRead(SW_PIN))
+    {
+        if (!digitalRead(BTN_A_PIN))
+        {
+            coil_width -= 0.1;
+            menu.update();
+        }
+        if (!digitalRead(BTN_C_PIN))
+        {
+            coil_width += 0.1;
+            menu.update();
+        }
 
-void turns(){
-Serial.println("turns function");
-}
-
-void start(){
-menu.change_screen(LiquidScreen progress_screen);
-}
-
-void back(){
-menu.change_screen(menu.get_currentScreen()-1);
-}
-
-//Select with enter of line encoder 
-void selectOption(){
-    if (digitalRead(SW_PIN) == LOW){
-        menu.call_function(1);
-        delay(500);
+        clkState = digitalRead(CLK_PIN);
+        if ((clkState != clkLastState))
+        {
+            if (digitalRead(DT_PIN) != clkState)
+                coil_width -= 0.1;
+            else
+                coil_width += 0.1;
+            clkLastState = digitalRead(CLK_PIN);
+            menu.update();
+        }
     }
+}
+
+void set_wire_gauge()
+{
+    delay(500);
+    while (digitalRead(BTN_B_PIN) && digitalRead(SW_PIN))
+    {
+        if (!digitalRead(BTN_A_PIN))
+        {
+            wire_gauge_mm -= 0.001;
+            menu.update();
+        }
+        if (!digitalRead(BTN_C_PIN))
+        {
+            wire_gauge_mm += 0.001;
+            menu.update();
+        }
+
+        clkState = digitalRead(CLK_PIN);
+        if ((clkState != clkLastState))
+        {
+            if (digitalRead(DT_PIN) != clkState)
+                wire_gauge_mm -= 0.001;
+            else
+                wire_gauge_mm += 0.001;
+            clkLastState = digitalRead(CLK_PIN);
+            menu.update();
+        }
+    }
+}
+
+void set_turns()
+{
+    delay(500);
+    while (digitalRead(BTN_B_PIN) && digitalRead(SW_PIN))
+    {
+        if (!digitalRead(BTN_A_PIN))
+        {
+            turns--;
+            menu.update();
+        }
+        if (!digitalRead(BTN_C_PIN))
+        {
+            turns++;
+            menu.update();
+        }
+
+        clkState = digitalRead(CLK_PIN);
+        if ((clkState != clkLastState))
+        {
+            if (digitalRead(DT_PIN) != clkState)
+                turns--;
+            else
+                turns++;
+            clkLastState = digitalRead(CLK_PIN);
+            menu.update();
+        }
+    }
+}
+
+void start()
+{
+
+    delay(100);
+    sendCommand(1, coil_width * 10.0);
+    delay(100);
+    sendCommand(2, wire_gauge_mm * 1000.0);
+    delay(100);
+    sendCommand(3, turns);
+    delay(100);
+    sendCommand(10, 0);
+
+    menu.change_screen(3);
+    menu.set_focusedLine(3);
+
+    delay(300);
+    sendCommand(31, 0);
+    delay(100);
+    sendCommand(11, 0);
+}
+
+void stop()
+{
+    sendCommand(30, 0);
+    delay(100);
+    back();
+}
+void back()
+{
+    menu.previous_screen();
+    menu.set_focusedLine(1);
+    // menu.update();
 }
 
 void sendCommand(int16_t _command, int16_t _value = 0)
@@ -219,12 +337,17 @@ void sendCommand(int16_t _command, int16_t _value = 0)
     */
 
     // Converts the 16 bit integers to bytes
-    byte instruction[] = {(_command >> 8) & 0xFF, _command & 0xFF, (_value >> 8) & 0xFF, _value & 0xFF};
+    // byte instruction[] = {(_command >> 8) & 0xFF, _command & 0xFF, (_value >> 8) & 0xFF, _value & 0xFF};
 
-    // Sends the instructiion
-    Wire.beginTransmission(COIL_WINDER_I2C_ADDRESS);
-    Wire.write(instruction, sizeof(instruction));
-    Wire.endTransmission();
+    // // Sends the instructiion
+    // Wire.beginTransmission(COIL_WINDER_I2C_ADDRESS);
+    // Wire.write(instruction, sizeof(instruction));
+    // Wire.endTransmission();
+
+    Serial.print(_command);
+    Serial.print(",");
+    Serial.print(_value);
+    Serial.println(";");
 }
 
 void requestData(byte _address, int16_t _command)
@@ -235,7 +358,6 @@ void requestData(byte _address, int16_t _command)
 
     // Send the command
     sendCommand(_command);
-
     // Request the response
     Wire.requestFrom((uint8_t)_address, (uint8_t)(RESPONSE_SIZE));
 }
@@ -260,6 +382,12 @@ void receiveCommand(int numBytes)
     // Converts the bytes to 16 bit integers and saves to the global response array
     response[0] = (instruction[0] << 8) | instruction[1];
     response[1] = (instruction[2] << 8) | instruction[3];
+}
+
+void decodeSerial()
+{
+    progress_percentage = (uint16_t)(Serial.readStringUntil(',').toInt());
+    calculated_height = (float)((uint16_t)(Serial.readStringUntil(';').toInt() / 1000.0));
 }
 
 /*

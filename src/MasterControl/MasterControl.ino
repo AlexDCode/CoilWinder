@@ -119,11 +119,11 @@ setup_line_wire_gauge.set_focusPosition(Position::LEFT);
 setup_line_turns.set_focusPosition(Position::LEFT);
 setup_line_start.set_focusPosition(Position::LEFT);
 //attach funcion a cada linea para cuando se seleccione en el menu .attach_function(identifica funcion, nobre de la funcion)
-setup_line_back.attach_function(1, );
-setup_line_coil_width.attach_function(1, );
-setup_line_wire_gauge.attach_function(1, );
-setup_line_turns.attach_function(1, );
-setup_line_start.attach_function(1, );
+setup_line_back.attach_function(1, back());
+setup_line_coil_width.attach_function(1, coil_width());
+setup_line_wire_gauge.attach_function(1, wire_gauge());
+setup_line_turns.attach_function(1, turns());
+setup_line_start.attach_function(1, start());
 
 //menu.add_screen(setup_screen);
 

@@ -46,8 +46,8 @@ void sendResponse();                                                            
 #define STEP_PULSE_WIDTH 2
 #define SPEED_UPDATE_PERIOD 2000
 #define LEADSCREW_PITCH 8.0
-#define FEEDER_RPM_DEFAULT 10000
-#define SPINDLE_RPM_DEFAULT 10000
+#define FEEDER_RPM_DEFAULT 1000
+#define SPINDLE_RPM_DEFAULT 1000
 #define FEEDER_ACCEL_DEFAULT 5000
 #define FEEDER_DECEL_DEFAULT 3000
 #define FEEDER_OFFSET_DEFAULT 750

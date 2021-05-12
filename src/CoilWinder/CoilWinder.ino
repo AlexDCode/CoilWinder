@@ -110,6 +110,7 @@ float calculated_height;
 
 void setup()
 {
+  // loadDefaultSettings();
   // Start serial communication
   delay(1000);
   Serial.begin(SERIAL_BAUD_RATE);

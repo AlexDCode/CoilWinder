@@ -53,11 +53,9 @@ boolean clkLastState;
 
 int16_t response[COMMAND_SIZE];
 uint16_t speed = 0;
-uint16_t turns = 800;
+uint16_t turns = 200;
 float coil_width = 8.0;
 float wire_gauge_mm = 0.5;
-uint16_t current_layer = 1;
-uint16_t layers = 0;
 float calculated_height = 0.0;
 uint16_t progress_percentage = 0;
 /*
@@ -200,10 +198,7 @@ void loop()
     }
 
     if (Serial.available())
-    {
         decodeSerial();
-        menu.update();
-    }
 }
 
 //************funciones for lines***************
@@ -388,6 +383,7 @@ void decodeSerial()
 {
     progress_percentage = (uint16_t)(Serial.readStringUntil(',').toInt());
     calculated_height = (float)((uint16_t)(Serial.readStringUntil(';').toInt() / 1000.0));
+    menu.update();
 }
 
 /*

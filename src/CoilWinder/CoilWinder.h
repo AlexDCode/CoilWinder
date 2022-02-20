@@ -43,8 +43,8 @@ void sendResponse();                                                            
 
 // Define Stepper Motors Characteristics
 #define MOTOR_STEPS 200 // Motor steps per revolution
-#define STEP_PULSE_WIDTH 2
-#define SPEED_UPDATE_PERIOD 2000
+#define STEP_PULSE_WIDTH 3
+#define SPEED_UPDATE_PERIOD 3000
 #define LEADSCREW_PITCH 8.0
 #define FEEDER_RPM_DEFAULT 1000
 #define SPINDLE_RPM_DEFAULT 1000

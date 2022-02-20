@@ -1,8 +1,8 @@
-/* 
+/*
 !! Final-Project: Automatic Layer/Orthocyclic Coil Winder Implementing Linear Winding
   ELEN 447-131
   Prof. Miguel Goenaga
-  
+
   Modified May 10, 2021
   by: Alex D. Santiago Vargas & Gretchell M. Hiraldo Martinez & Gabriel Vera Rodríguez
 
@@ -15,7 +15,7 @@
 
   ?Command Instruction Set:
       (int16_t)command (int16_t)value
-    
+
     000 -> Print help message in serial
     001 -> Define Coil Width
     002 -> Define Coil Wire Gauge in mm
@@ -45,8 +45,6 @@
     047 -> Change Spindle POLARITY
     048 -> Change Microstepping Resolution
     050 -> Change feeder offset
-    051 -> Change speed factor percentage
-    052 -> Get speed factor percentage
     099 -> Load Default Setings
     117 -> Message
     118 -> Response with required data
@@ -74,12 +72,11 @@ int16_t SPINDLE_RPM;
 uint16_t FEEDER_ACCEL;
 uint16_t FEEDER_DECEL;
 uint16_t SPINDLE_ACCEL;
-uint16_t FEEDER_OFFSET;
 uint16_t SPINDLE_DECEL;
+uint16_t FEEDER_OFFSET;
 boolean FEEDER_POLARITY;
 boolean SPINDLE_POLARITY;
 uint8_t MICROSTEPS;
-float SPEED_FACTOR;
 uint32_t STEPS_PER_REV;
 float FEEDER_STEPS_PER_MILIMETER;
 uint8_t current_layer;
@@ -114,7 +111,6 @@ void setup()
   // Start serial communication
   delay(1000);
   Serial.begin(SERIAL_BAUD_RATE);
-  Serial1.begin(SERIAL_BAUD_RATE);
 
   // Start I2C Communication
   Wire.begin(COIL_WINDER_I2C_ADDRESS);
@@ -134,7 +130,6 @@ void setup()
   EEPROM.get(FEEDER_POLARITY_ADDRESS, FEEDER_POLARITY);
   EEPROM.get(SPINDLE_POLARITY_ADDRESS, SPINDLE_POLARITY);
   EEPROM.get(MICROSTEPS_ADDRESS, MICROSTEPS);
-  EEPROM.get(SPEED_FACTOR_ADDRESS, SPEED_FACTOR);
 
   STEPS_PER_REV = MOTOR_STEPS * MICROSTEPS;
   FEEDER_STEPS_PER_MILIMETER = STEPS_PER_REV / LEADSCREW_PITCH; // 1 revolution moves 2 mm
@@ -158,17 +153,17 @@ void setup()
   // Load settings into stepper motor objects
   feeder
       //.setPullInSpeed(10)           // steps/s
-      .setMaxSpeed(FEEDER_RPM * SPEED_FACTOR) // steps/s
-      .setAcceleration(FEEDER_ACCEL)          // steps/s^2
-      .setInverseRotation(FEEDER_POLARITY);   // Software will run stepper forward
-                                              // .setStepPinPolarity(FEEDER_POLARITY);   // driver expects active high pulses
+      .setMaxSpeed(FEEDER_RPM)              // steps/s
+      .setAcceleration(FEEDER_ACCEL)        // steps/s^2
+      .setInverseRotation(FEEDER_POLARITY); // Software will run stepper forward
+                                            // .setStepPinPolarity(FEEDER_POLARITY);   // driver expects active high pulses
 
   spindle
       //.setPullInSpeed(10)           // steps/s
-      .setMaxSpeed(SPINDLE_RPM * SPEED_FACTOR) // steps/s
-      .setAcceleration(SPINDLE_ACCEL)          // steps/s^2
-      .setInverseRotation(SPINDLE_POLARITY);   // Software will run stepper forward
-                                               // .setStepPinPolarity(SPINDLE_POLARITY);   // driver expects active high pulses
+      .setMaxSpeed(SPINDLE_RPM)              // steps/s
+      .setAcceleration(SPINDLE_ACCEL)        // steps/s^2
+      .setInverseRotation(SPINDLE_POLARITY); // Software will run stepper forward
+                                             // .setStepPinPolarity(SPINDLE_POLARITY);   // driver expects active high pulses
 
   // Set the microstepping pins states
   setMicrostepping(MICROSTEPS, FEEDER_MS1_PIN, FEEDER_MS2_PIN, FEEDER_MS3_PIN);
@@ -192,8 +187,10 @@ void loop()
     feederHomming();
 
   // If data is incomming decode the instruction and execute accordingly
-  if (Serial1.available())
+  if (Serial.available())
     decodeSerial();
+
+  delay(100);
 }
 
 void loadDefaultSettings()
@@ -209,7 +206,6 @@ void loadDefaultSettings()
   EEPROM.put(FEEDER_POLARITY_ADDRESS, (bool)FEEDER_POLARITY_DEFAULT);
   EEPROM.put(SPINDLE_POLARITY_ADDRESS, (bool)SPINDLE_POLARITY_DEFAULT);
   EEPROM.put(MICROSTEPS_ADDRESS, (uint8_t)MICROSTEPS_DEFAULT);
-  EEPROM.put(SPEED_FACTOR_ADDRESS, (uint8_t)SPEED_FACTOR_DEFAULT);
 }
 
 void setMicrostepping(uint16_t _Microstep, uint16_t _ms1_pin, uint16_t _ms2_pin, uint16_t _ms3_pin)
@@ -236,9 +232,9 @@ void setMicrostepping(uint16_t _Microstep, uint16_t _ms1_pin, uint16_t _ms2_pin,
   pinMode(_ms3_pin, OUTPUT);
 
   /* Select mask according to the microstep input
-  
+
     If we calculate X by taking the log2 of Microstep = 2^X, we would have an index
-    from 0 to 4 representing the all microstepping resolutions of the A4988. Hence we 
+    from 0 to 4 representing the all microstepping resolutions of the A4988. Hence we
     input full (1), half (2), quarter (4), eighth (8), or sixteenth (16) resolution and
     we get the corresponding mask from element X of the table array.
 
@@ -247,7 +243,7 @@ void setMicrostepping(uint16_t _Microstep, uint16_t _ms1_pin, uint16_t _ms2_pin,
 
       log2(16) = 4 => _microsteppingMask = MicrosteppingTable[4]
       => _microsteppingMask = 0b111
-      
+
       Q.E.D. (quod erat demonstrandum) <=> TRIVIAL
   */
   uint8_t _microsteppingMask = MicrosteppingTable[uint8_t(log2(_Microstep))];
@@ -265,9 +261,9 @@ void setMicrostepping(uint16_t _Microstep, uint16_t _ms1_pin, uint16_t _ms2_pin,
       => digitalWrite(_ms2_pin, (0b111 & 0b010) >> 1)
       => digitalWrite(_ms3_pin, (0b111 & 0b100) >> 2)
 
-      => digitalWrite(_ms1_pin, 0b001 >> 0) 
-      => digitalWrite(_ms2_pin, 0b010 >> 1) 
-      => digitalWrite(_ms3_pin, 0b100 >> 2) 
+      => digitalWrite(_ms1_pin, 0b001 >> 0)
+      => digitalWrite(_ms2_pin, 0b010 >> 1)
+      => digitalWrite(_ms3_pin, 0b100 >> 2)
 
       => digitalWrite(_ms1_pin, 1)
       => digitalWrite(_ms2_pin, 1)
@@ -303,7 +299,7 @@ void turnOnSteppers()
     !! Sleep Pin:
     is active low input. Meaning, pulling this pin LOW puts the
     driver in sleep mode, minimizing the power consumption. You can invoke
-    this especially when the motor is not in use 
+    this especially when the motor is not in use
 
     !! Reset Pin
     is an active low input, when pulled LOW all STEP inputs are
@@ -334,7 +330,7 @@ void turnOffSteppers()
     !! Sleep Pin:
     is active low input. Meaning, pulling this pin LOW puts the
     driver in sleep mode, minimizing the power consumption. You can invoke
-    this especially when the motor is not in use 
+    this especially when the motor is not in use
 
     !! Reset Pin
     is an active low input, when pulled LOW all STEP inputs are
@@ -470,7 +466,7 @@ void buildCoil()
     // If no homing is required or the motors are executing a movement start the layer winding
     if (!homingRequired && !step_controller.isRunning())
     {
-      tone(BUZZER_PIN, 5000, 500); //Buzzer Activation before starting wilding process
+      tone(BUZZER_PIN, 5000, 500); // Buzzer Activation before starting wilding process
       digitalWrite(STATUS_LED_PIN_R, HIGH);
 
       // Move the motors in sync but without blocking other code execution
@@ -499,8 +495,8 @@ void buildCoil()
 
 void decodeSerial()
 {
-  instruction[0] = (int16_t)Serial1.readStringUntil(',').toInt();
-  instruction[1] = (int16_t)Serial1.readStringUntil(';').toInt();
+  instruction[0] = (int16_t)Serial.readStringUntil(',').toInt();
+  instruction[1] = (int16_t)Serial.readStringUntil(';').toInt();
 
   Serial.print("\nReceived Command: ");
   Serial.print(instruction[0]);
@@ -600,7 +596,7 @@ void decodeCommand(int16_t _command, int16_t _value)
     // 040 -> Change Feeder RPM
     EEPROM.put(FEEDER_RPM_ADDRESS, (uint16_t)_value);
     EEPROM.get(FEEDER_RPM_ADDRESS, FEEDER_RPM);
-    feeder.setMaxSpeed(FEEDER_RPM * SPEED_FACTOR); // steps/s
+    feeder.setMaxSpeed(FEEDER_RPM); // steps/s
     break;
   case (41):
     // 041 -> Change Feeder ACCEL
@@ -623,7 +619,7 @@ void decodeCommand(int16_t _command, int16_t _value)
     // 044 -> Change Spindle RPM
     EEPROM.put(SPINDLE_RPM_ADDRESS, (uint16_t)_value);
     EEPROM.get(SPINDLE_RPM_ADDRESS, SPINDLE_RPM);
-    spindle.setMaxSpeed(SPINDLE_RPM * SPEED_FACTOR); // steps/s
+    spindle.setMaxSpeed(SPINDLE_RPM); // steps/s
     break;
   case (45):
     // 045 -> Change Spindle ACCEL
@@ -653,22 +649,6 @@ void decodeCommand(int16_t _command, int16_t _value)
     // 050 -> Change feeder offset
     EEPROM.put(FEEDER_OFFSET_ADDRESS, (uint8_t)_value);
     EEPROM.get(FEEDER_OFFSET_ADDRESS, FEEDER_OFFSET);
-    break;
-  case (51):
-    // 051 -> Change speed factor percentage
-    if (_value > 100)
-      _value = 100;
-    else if (_value < 0)
-      _value = 0;
-
-    EEPROM.put(SPEED_FACTOR_ADDRESS, (float)_value / 100);
-    EEPROM.get(SPEED_FACTOR_ADDRESS, SPEED_FACTOR);
-    feeder.setMaxSpeed(FEEDER_RPM * SPEED_FACTOR);
-    spindle.setMaxSpeed(SPINDLE_RPM * SPEED_FACTOR);
-    break;
-  case (52):
-    // 052 -> Get speed factor percentage
-    setResponse(118, int16_t(100 * SPEED_FACTOR)); // Send spindle executed turns in X position with uint16_t data type
     break;
   case (99):
     // 099 -> Load Default Setings
@@ -724,20 +704,9 @@ void printHelp()
   Serial.println(F("47  -> Change Spindle POLARITY"));
   Serial.println(F("48  -> Change Microstepping Resolution"));
   Serial.println(F("50  -> Change feeder offset"));
-  Serial.println(F("51  -> Change speed factor percentage"));
-  Serial.println(F("52  -> Get speed factor percentage"));
   Serial.println(F("99  -> Load Default Setings"));
   Serial.println(F("117 -> Message"));
   Serial.println(F("118 -> Response with required data"));
-}
-
-void sendProgress()
-{
-  // Get current controller speed from the faster motor
-  int progress_percentage = (int)((float)((uint32_t)(100 * current_layer / layers)));
-  // Print the leading motor speed
-  Serial.printf("%d,%d;\n", (int)progress_percentage, (int)(calculated_height * 1000.0));
-  Serial1.printf("%d,%d;\n", (int)progress_percentage, (int)(calculated_height * 1000.0));
 }
 
 void receiveCommand(int numBytes)

@@ -90,21 +90,18 @@ volatile bool homingRequired = true;
 volatile bool menuPressed = false;
 volatile bool clkLastState = false;
 volatile bool clkState = false;
-volatile bool menuScrolledUp = false;
-volatile bool menuScrolledDown = false;
 volatile bool pause_flag = false;
 volatile uint32_t layerN = 0;
 
 // Vectors to store stepper movements in steps. They are global so that they canà be accessed by all the program
-std::vector<int32_t>
-    coil_feederSteps;
+std::vector<int32_t> coil_feederSteps;
 std::vector<int32_t> coil_spindleSteps;
 
 // Store calculated coil parameters
 uint32_t layers;
-uint32_t turns;
-float coil_width;
-float wire_gauge_mm;
+uint32_t turns = 220;
+float coil_width = 10.0;
+float wire_gauge_mm = 0.51;
 float turns_per_layer;
 uint8_t progress_percentage;
 float calculated_height;
@@ -113,7 +110,7 @@ SerLCD lcd; // Initialize the library with default I2C address 0x72
 
 // Welcome Screen Lines
 LiquidLine welcome_line1(2, 1, "Coil Winder v1.1");
-LiquidLine welcome_line2(4, 2, "March 2, 2022");
+LiquidLine welcome_line2(4, 2, "March 16, 2022");
 
 // Welcome Screen
 LiquidScreen welcome_screen(welcome_line1, welcome_line2);
@@ -122,15 +119,15 @@ LiquidScreen welcome_screen(welcome_line1, welcome_line2);
 LiquidLine setup_line_coil_width(1, 0, "Width (mm): ", coil_width);
 LiquidLine setup_line_wire_gauge(1, 1, "Gauge (mm): ", wire_gauge_mm);
 LiquidLine setup_line_turns(1, 2, "Turns: ", turns);
-LiquidLine setup_line_start(1, 3, "Start...");
+LiquidLine setup_line_start(12, 3, "> Start");
 
 // Set Up Screen
 LiquidScreen setup_screen(setup_line_coil_width, setup_line_wire_gauge, setup_line_turns, setup_line_start);
 
 // Progress screen lines
-LiquidLine progress_line_percentage(1, 0, "Progress: ", progress_percentage);
-LiquidLine progress_line_coil_height(1, 1, "Height: ", calculated_height);
-LiquidLine progress_line_pause(1, 2, "Pause");
+LiquidLine progress_line_percentage(1, 0, "Progress (%): ", progress_percentage);
+LiquidLine progress_line_coil_height(1, 1, "Height (mm): ", calculated_height);
+LiquidLine progress_line_pause(12, 3, "> Pause ");
 
 LiquidScreen progress_screen(progress_line_percentage, progress_line_coil_height, progress_line_pause);
 
@@ -145,8 +142,9 @@ void setup()
   // Start Serial and I2C Communication
   Serial.begin(SERIAL_BAUD_RATE);
   Wire2.begin(LCD_ADDRESS);
-
-  setup_screen.add_line(setup_line_start);
+  Wire2.setClock(400000); // Optional - set I2C SCL to High Speed Mode of 400kHz
+  lcd.begin(Wire2);
+  lcd.setBacklight(255, 0, 0); // bright red
 
   setup_line_coil_width.set_decimalPlaces(1);
   setup_line_wire_gauge.set_decimalPlaces(3);
@@ -154,22 +152,12 @@ void setup()
   progress_line_coil_height.set_decimalPlaces(1);
 
   // identificar a que lado aparece la flecha setup screen
-  setup_line_coil_width.set_focusPosition(Position::LEFT);
-  setup_line_wire_gauge.set_focusPosition(Position::LEFT);
-  setup_line_turns.set_focusPosition(Position::LEFT);
   setup_line_start.set_focusPosition(Position::LEFT);
   progress_line_pause.set_focusPosition(Position::LEFT);
 
   // Identify tge display line count
   setup_screen.set_displayLineCount(4);
   progress_screen.set_displayLineCount(4);
-
-  // Attach funcions for each line
-  setup_line_coil_width.attach_function(1, set_coil_width);
-  setup_line_wire_gauge.attach_function(1, set_wire_gauge);
-  setup_line_turns.attach_function(1, set_turns);
-  setup_line_start.attach_function(1, buildCoil);
-  progress_line_pause.attach_function(1, pause_resume);
 
   // Load settings from the EEPROM memory to save when power is lost
   EEPROM.get(FEEDER_RPM_ADDRESS, FEEDER_RPM);
@@ -189,12 +177,6 @@ void setup()
   // Micro switch as inputs with pullup resistors
   pinMode(END_STOP_2_PIN, INPUT_PULLUP);
   pinMode(END_STOP_1_PIN, INPUT_PULLUP);
-  // Rotary encoder as inputs with pullup resistors
-  // pinMode(BTN_A_PIN, INPUT_PULLUP);
-  // pinMode(BTN_B_PIN, INPUT_PULLUP);
-  // pinMode(BTN_C_PIN, INPUT_PULLUP);
-  pinMode(CLK_PIN, INPUT_PULLUP);
-  pinMode(DT_PIN, INPUT_PULLUP);
   pinMode(SW_PIN, INPUT_PULLUP);
 
   // Stepper pins as outputs
@@ -232,8 +214,7 @@ void setup()
   attachInterrupt(digitalPinToInterrupt(END_STOP_1_PIN), emergencyStop, FALLING);
   attachInterrupt(digitalPinToInterrupt(END_STOP_2_PIN), emergencyStop, FALLING);
   attachInterrupt(digitalPinToInterrupt(STOP_BTN), emergencyStop, FALLING);
-  attachInterrupt(digitalPinToInterrupt(SW_PIN), menuPress, FALLING);
-  attachInterrupt(digitalPinToInterrupt(CLK_PIN), menuScroll, CHANGE);
+  attachInterrupt(digitalPinToInterrupt(SW_PIN), menuPress, LOW);
 
   // This is the method used to add a screen object to the menu.
   menu.add_screen(welcome_screen);
@@ -241,11 +222,11 @@ void setup()
   menu.add_screen(progress_screen);
 
   menu.change_screen(1);
-  menu.update();
-  delay(3000);
+  feederHomming();
 
   menu.change_screen(2);
-  menu.set_focusedLine(0);
+  menu.set_focusedLine(3);
+  menu.update();
 
   printHelp();
 }
@@ -259,19 +240,8 @@ void loop()
   // Execute function when pressing
   if (menuPressed)
   {
-    menu.call_function(1);
     menuPressed = false;
-  }
-  // Switch the menu focus
-  if (menuScrolledDown)
-  {
-    menu.switch_focus(false);
-    menuScrolledDown = false;
-  }
-  if (menuScrolledUp)
-  {
-    menu.switch_focus(true);
-    menuScrolledUp = false;
+    buildCoil();
   }
 
   // If data is incomming decode the instruction and execute accordingly
@@ -370,12 +340,6 @@ void pause_resume()
     When the user wants to pause the build, this reduces the speeds and avoids loosing steps in order to keep winding from the pause point
   */
   pause_flag = !pause_flag;
-
-  lcd.setCursor(2, 3);
-  if (pause_flag)
-    lcd.print("Resume");
-  else
-    lcd.print("Pause");
 }
 
 void emergencyStop()
@@ -386,7 +350,6 @@ void emergencyStop()
     from sudden braking. Hence it raises the homingRequired flag to home
     before running again
   */
-
   step_controller.emergencyStop();
   homingRequired = true;
 }
@@ -514,6 +477,7 @@ void coilCharacterization(float _coil_width = coil_width, float _wire_gauge_mm =
   wire_gauge_mm = _wire_gauge_mm;
   coil_width = _coil_width;
   turns = _turns;
+
   // Calculate how many turns can be made for a wire of teh specified gauge and coil width
   _turns_per_layer = _coil_width / _wire_gauge_mm;
 
@@ -555,6 +519,8 @@ void buildCoil()
 {
   menu.change_screen(3);
   menu.set_focusedLine(3);
+  menu.update();
+  coilCharacterization();
 
   // Starting delay
   delay(1000);
@@ -572,8 +538,9 @@ void buildCoil()
     feeder.setTargetRel(int32_t(coil_feederSteps[layerN]));
     spindle.setTargetRel(int32_t(coil_spindleSteps[layerN]));
 
-    progress_percentage = layerN / layers;
-    calculated_height = (layerN + 1); // ********* TODO:multiply by wire diameter
+    progress_percentage = (layerN * 100.0 / layers);
+    calculated_height = (float)((layerN + 1) * wire_gauge_mm);
+    menu.update();
     // If no homing is required or the motors are executing a movement start the layer winding
     if (!homingRequired && !step_controller.isRunning())
     {
@@ -582,7 +549,21 @@ void buildCoil()
         step_controller.stopAsync();
 
         while (pause_flag)
+        {
+          if (menuPressed)
+          {
+            menuPressed = false;
+            pause_resume();
+          }
+
+          lcd.setCursor(12, 3);
+          if (pause_flag)
+            lcd.print("> Resume");
+          else
+            lcd.print("> Pause ");
+
           delay(100);
+        }
       }
 
       // Move the motors in sync but without blocking other code execution
@@ -591,23 +572,17 @@ void buildCoil()
       // While there is no homming needed and the controller is executing a move, send the progress via serial
       while (step_controller.isRunning())
       {
-
         if (menuPressed)
         {
-          menu.call_function(1);
           menuPressed = false;
+          pause_resume();
         }
-        // Switch the menu focus
-        if (menuScrolledDown)
-        {
-          menu.switch_focus(false);
-          menuScrolledDown = false;
-        }
-        if (menuScrolledUp)
-        {
-          menu.switch_focus(true);
-          menuScrolledUp = false;
-        }
+
+        lcd.setCursor(12, 3);
+        if (pause_flag)
+          lcd.print("> Resume");
+        else
+          lcd.print("> Pause ");
       }
     }
     else
@@ -619,6 +594,7 @@ void buildCoil()
   turnOffSteppers();
   menu.previous_screen();
   menu.set_focusedLine(1);
+  menu.update();
 }
 
 void decodeSerial()
@@ -675,12 +651,12 @@ void decodeCommand(int16_t _command, int16_t _value)
   case (20):
     // 020 -> Get saved coil_width
     Serial.print("coil_width=");
-    Serial.println(coil_width * 10.0);
+    Serial.println(coil_width);
     break;
   case (21):
     // 021 -> Get saved wire_gauge_mm
     Serial.print("wire_gauge_mm=");
-    Serial.println(wire_gauge_mm * 1000.0);
+    Serial.println(wire_gauge_mm);
     break;
   case (22):
     // 022 -> Get saved turns
@@ -801,6 +777,8 @@ void decodeCommand(int16_t _command, int16_t _value)
     printHelp();
     break;
   }
+
+  menu.update();
 }
 
 void printHelp()
@@ -841,78 +819,7 @@ void printHelp()
   Serial.println(F("99  -> Load Default Setings"));
 }
 
-void set_coil_width()
-{
-  while (!menuPressed)
-  {
-    if (menuScrolledDown)
-    {
-      coil_width -= 0.1;
-      menu.softUpdate();
-      menuScrolledDown = false;
-    }
-    if (menuScrolledUp)
-    {
-      coil_width += 0.1;
-      menu.softUpdate();
-      menuScrolledUp = false;
-    }
-  }
-}
-
-void set_wire_gauge()
-{
-  while (!menuPressed)
-  {
-    if (menuScrolledDown)
-    {
-      wire_gauge_mm -= 0.001;
-      menu.softUpdate();
-      menuScrolledDown = false;
-    }
-    if (menuScrolledUp)
-    {
-      wire_gauge_mm += 0.001;
-      menu.softUpdate();
-      menuScrolledUp = false;
-    }
-  }
-}
-
-void set_turns()
-{
-  while (!menuPressed)
-  {
-    if (menuScrolledDown)
-    {
-      turns--;
-      menu.softUpdate();
-      menuScrolledDown = false;
-    }
-    if (menuScrolledUp)
-    {
-      turns++;
-      menu.softUpdate();
-      menuScrolledUp = false;
-    }
-  }
-}
-
 void menuPress()
 {
   menuPressed = true;
-}
-
-void menuScroll()
-{
-  clkState = digitalRead(CLK_PIN);
-  if (clkState != clkLastState)
-  {
-    if (digitalRead(DT_PIN) != clkState)
-      menuScrolledDown = true;
-    else
-      menuScrolledUp = true;
-
-    clkLastState = digitalRead(CLK_PIN);
-  }
 }

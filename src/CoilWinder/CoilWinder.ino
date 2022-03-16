@@ -1,10 +1,7 @@
 /*
-!! Final-Project: Automatic Layer/Orthocyclic Coil Winder Implementing Linear Winding
-  ELEN 447-131
-  Prof. Miguel Goenaga
-
+!! Automatic Orthocyclic Coil Winder Implementing Linear Winding
   Modified May 10, 2021
-  by: Alex D. Santiago Vargas & Gretchell M. Hiraldo Martinez & Gabriel Vera Rodríguez
+  by: Alex D. Santiago Vargas
 
   This system controls the winding process according to the inputs received by the MasterControl
   The commands can be sent via any device with serial communication or I2C.
@@ -46,15 +43,13 @@
     048 -> Change Microstepping Resolution
     050 -> Change feeder offset
     099 -> Load Default Setings
-    117 -> Message
-    118 -> Response with required data
 
     Example:
       (int16_t)41 (int16_t)1500
 
   ---------------- TODO: ----------------
-  * Add Pinout description from hardware/Schematics/Circuit Pinouts.docx in the intro commentary @ghiraldo5
-  * Verify Command Instruction Set @ByteCommando
+  * Add resume function to the winding process
+  * Update pinout
 */
 
 // Libraries
@@ -65,6 +60,8 @@
 #include "TeensyStep.h"
 #include <math.h>
 #include <vector>
+#include <LiquidMenu.h> // Lib for Menu (https://github.com/VasilKalchev/LiquidMenu)
+#include <SerLCD.h>     // SparkFun Quiic LCD Library http://librarymanager/All#SparkFun_SerLCD
 
 // Stepper Motor Settings variables
 int16_t FEEDER_RPM;
@@ -79,9 +76,7 @@ boolean SPINDLE_POLARITY;
 uint8_t MICROSTEPS;
 uint32_t STEPS_PER_REV;
 float FEEDER_STEPS_PER_MILIMETER;
-uint8_t current_layer;
 int16_t instruction[COMMAND_SIZE];
-byte response[RESPONSE_SIZE];
 
 // Stepper Driver Objects for feeder ans spindle
 Stepper feeder(FEEDER_STEP_PIN, FEEDER_DIR_PIN);
@@ -90,11 +85,19 @@ Stepper spindle(SPINDLE_STEP_PIN, SPINDLE_DIR_PIN);
 // Stepper Drivers Controller
 StepControl step_controller(STEP_PULSE_WIDTH, SPEED_UPDATE_PERIOD); // Moving by position
 
-// Limit flag
+// Flags
 volatile bool homingRequired = true;
+volatile bool menuPressed = false;
+volatile bool clkLastState = false;
+volatile bool clkState = false;
+volatile bool menuScrolledUp = false;
+volatile bool menuScrolledDown = false;
+volatile bool pause_flag = false;
+volatile uint32_t layerN = 0;
 
-// Vectors to store stepper movements in steps. They are global so that they can be accessed by all the program
-std::vector<int32_t> coil_feederSteps;
+// Vectors to store stepper movements in steps. They are global so that they canà be accessed by all the program
+std::vector<int32_t>
+    coil_feederSteps;
 std::vector<int32_t> coil_spindleSteps;
 
 // Store calculated coil parameters
@@ -103,21 +106,70 @@ uint32_t turns;
 float coil_width;
 float wire_gauge_mm;
 float turns_per_layer;
+uint8_t progress_percentage;
 float calculated_height;
+
+SerLCD lcd; // Initialize the library with default I2C address 0x72
+
+// Welcome Screen Lines
+LiquidLine welcome_line1(2, 1, "Coil Winder v1.1");
+LiquidLine welcome_line2(4, 2, "March 2, 2022");
+
+// Welcome Screen
+LiquidScreen welcome_screen(welcome_line1, welcome_line2);
+
+// Set up screen lines
+LiquidLine setup_line_coil_width(1, 0, "Width (mm): ", coil_width);
+LiquidLine setup_line_wire_gauge(1, 1, "Gauge (mm): ", wire_gauge_mm);
+LiquidLine setup_line_turns(1, 2, "Turns: ", turns);
+LiquidLine setup_line_start(1, 3, "Start...");
+
+// Set Up Screen
+LiquidScreen setup_screen(setup_line_coil_width, setup_line_wire_gauge, setup_line_turns, setup_line_start);
+
+// Progress screen lines
+LiquidLine progress_line_percentage(1, 0, "Progress: ", progress_percentage);
+LiquidLine progress_line_coil_height(1, 1, "Height: ", calculated_height);
+LiquidLine progress_line_pause(1, 2, "Pause");
+
+LiquidScreen progress_screen(progress_line_percentage, progress_line_coil_height, progress_line_pause);
+
+LiquidMenu menu(lcd);
 
 void setup()
 {
-  // loadDefaultSettings();
   // Start serial communication
   delay(1000);
-  Serial.begin(SERIAL_BAUD_RATE);
+  tone(BUZZER_PIN, 100, 3000);
 
-  // Start I2C Communication
-  Wire.begin(COIL_WINDER_I2C_ADDRESS);
-  Wire.onReceive(receiveCommand);
-  Wire.onRequest(sendResponse);
-  Wire.setSDA(SDA_PIN);
-  Wire.setSCL(SCL_PIN);
+  // Start Serial and I2C Communication
+  Serial.begin(SERIAL_BAUD_RATE);
+  Wire2.begin(LCD_ADDRESS);
+
+  setup_screen.add_line(setup_line_start);
+
+  setup_line_coil_width.set_decimalPlaces(1);
+  setup_line_wire_gauge.set_decimalPlaces(3);
+  progress_line_percentage.set_decimalPlaces(0);
+  progress_line_coil_height.set_decimalPlaces(1);
+
+  // identificar a que lado aparece la flecha setup screen
+  setup_line_coil_width.set_focusPosition(Position::LEFT);
+  setup_line_wire_gauge.set_focusPosition(Position::LEFT);
+  setup_line_turns.set_focusPosition(Position::LEFT);
+  setup_line_start.set_focusPosition(Position::LEFT);
+  progress_line_pause.set_focusPosition(Position::LEFT);
+
+  // Identify tge display line count
+  setup_screen.set_displayLineCount(4);
+  progress_screen.set_displayLineCount(4);
+
+  // Attach funcions for each line
+  setup_line_coil_width.attach_function(1, set_coil_width);
+  setup_line_wire_gauge.attach_function(1, set_wire_gauge);
+  setup_line_turns.attach_function(1, set_turns);
+  setup_line_start.attach_function(1, buildCoil);
+  progress_line_pause.attach_function(1, pause_resume);
 
   // Load settings from the EEPROM memory to save when power is lost
   EEPROM.get(FEEDER_RPM_ADDRESS, FEEDER_RPM);
@@ -137,6 +189,13 @@ void setup()
   // Micro switch as inputs with pullup resistors
   pinMode(END_STOP_2_PIN, INPUT_PULLUP);
   pinMode(END_STOP_1_PIN, INPUT_PULLUP);
+  // Rotary encoder as inputs with pullup resistors
+  // pinMode(BTN_A_PIN, INPUT_PULLUP);
+  // pinMode(BTN_B_PIN, INPUT_PULLUP);
+  // pinMode(BTN_C_PIN, INPUT_PULLUP);
+  pinMode(CLK_PIN, INPUT_PULLUP);
+  pinMode(DT_PIN, INPUT_PULLUP);
+  pinMode(SW_PIN, INPUT_PULLUP);
 
   // Stepper pins as outputs
   pinMode(FEEDER_RST_PIN, OUTPUT);
@@ -152,18 +211,16 @@ void setup()
 
   // Load settings into stepper motor objects
   feeder
-      //.setPullInSpeed(10)           // steps/s
       .setMaxSpeed(FEEDER_RPM)              // steps/s
       .setAcceleration(FEEDER_ACCEL)        // steps/s^2
-      .setInverseRotation(FEEDER_POLARITY); // Software will run stepper forward
-                                            // .setStepPinPolarity(FEEDER_POLARITY);   // driver expects active high pulses
+      .setInverseRotation(FEEDER_POLARITY)  // Software will run stepper forward
+      .setStepPinPolarity(FEEDER_POLARITY); // driver expects active high pulses
 
   spindle
-      //.setPullInSpeed(10)           // steps/s
       .setMaxSpeed(SPINDLE_RPM)              // steps/s
       .setAcceleration(SPINDLE_ACCEL)        // steps/s^2
-      .setInverseRotation(SPINDLE_POLARITY); // Software will run stepper forward
-                                             // .setStepPinPolarity(SPINDLE_POLARITY);   // driver expects active high pulses
+      .setInverseRotation(SPINDLE_POLARITY)  // Software will run stepper forward
+      .setStepPinPolarity(SPINDLE_POLARITY); // driver expects active high pulses
 
   // Set the microstepping pins states
   setMicrostepping(MICROSTEPS, FEEDER_MS1_PIN, FEEDER_MS2_PIN, FEEDER_MS3_PIN);
@@ -175,9 +232,22 @@ void setup()
   attachInterrupt(digitalPinToInterrupt(END_STOP_1_PIN), emergencyStop, FALLING);
   attachInterrupt(digitalPinToInterrupt(END_STOP_2_PIN), emergencyStop, FALLING);
   attachInterrupt(digitalPinToInterrupt(STOP_BTN), emergencyStop, FALLING);
+  attachInterrupt(digitalPinToInterrupt(SW_PIN), menuPress, FALLING);
+  attachInterrupt(digitalPinToInterrupt(CLK_PIN), menuScroll, CHANGE);
+
+  // This is the method used to add a screen object to the menu.
+  menu.add_screen(welcome_screen);
+  menu.add_screen(setup_screen);
+  menu.add_screen(progress_screen);
+
+  menu.change_screen(1);
+  menu.update();
+  delay(3000);
+
+  menu.change_screen(2);
+  menu.set_focusedLine(0);
 
   printHelp();
-  tone(BUZZER_PIN, 5000, 2000);
 }
 
 void loop()
@@ -186,11 +256,29 @@ void loop()
   if (homingRequired)
     feederHomming();
 
+  // Execute function when pressing
+  if (menuPressed)
+  {
+    menu.call_function(1);
+    menuPressed = false;
+  }
+  // Switch the menu focus
+  if (menuScrolledDown)
+  {
+    menu.switch_focus(false);
+    menuScrolledDown = false;
+  }
+  if (menuScrolledUp)
+  {
+    menu.switch_focus(true);
+    menuScrolledUp = false;
+  }
+
   // If data is incomming decode the instruction and execute accordingly
   if (Serial.available())
     decodeSerial();
 
-  delay(100);
+  delay(25);
 }
 
 void loadDefaultSettings()
@@ -276,6 +364,20 @@ void setMicrostepping(uint16_t _Microstep, uint16_t _ms1_pin, uint16_t _ms2_pin,
   digitalWrite(_ms3_pin, (_microsteppingMask & 0b100) >> 2);
 }
 
+void pause_resume()
+{
+  /*
+    When the user wants to pause the build, this reduces the speeds and avoids loosing steps in order to keep winding from the pause point
+  */
+  pause_flag = !pause_flag;
+
+  lcd.setCursor(2, 3);
+  if (pause_flag)
+    lcd.print("Resume");
+  else
+    lcd.print("Pause");
+}
+
 void emergencyStop()
 {
   /*
@@ -308,6 +410,8 @@ void turnOnSteppers()
     initial position from where the motor starts and depends on the
     microstep resolution.
   */
+  tone(BUZZER_PIN, 5000, 500); // Buzzer Activation before starting wilding process
+  digitalWrite(STATUS_LED_PIN_R, HIGH);
 
   digitalWrite(FEEDER_EN_PIN, LOW);   // Feeder Stepper Driver Enable
   digitalWrite(FEEDER_SLP_PIN, HIGH); // Feeder Stepper Driver Wake-Up (Un-Sleep)
@@ -347,6 +451,9 @@ void turnOffSteppers()
   digitalWrite(SPINDLE_SLP_PIN, LOW); // Spindle Stepper Driver Sleep
 
   digitalWrite(LED_BUILTIN, LOW); // BuiltIn LED Off to indicate disable steppers
+
+  noTone(BUZZER_PIN);
+  digitalWrite(STATUS_LED_PIN_R, LOW);
 }
 
 void feederHomming()
@@ -446,40 +553,61 @@ void coilCharacterization(float _coil_width = coil_width, float _wire_gauge_mm =
 
 void buildCoil()
 {
+  menu.change_screen(3);
+  menu.set_focusedLine(3);
+
   // Starting delay
-  delay(2000);
+  delay(1000);
 
   // Home the feeder if needed
   if (homingRequired)
     feederHomming();
 
   turnOnSteppers();
-  // Iterate for all the layers and execute the steps established in the motor step vectors
-  for (uint32_t i = 0; i < layers; i++)
-  {
-    current_layer = i + 1; // Set current layer
-    sendProgress();
 
+  // Iterate for all the layers and execute the steps established in the motor step vectors
+  for (layerN = 0; layerN < layers; layerN++)
+  {
     // Set the steps from iteration element to the feeder and spindle
-    feeder.setTargetRel(int32_t(coil_feederSteps[i]));
-    spindle.setTargetRel(int32_t(coil_spindleSteps[i]));
+    feeder.setTargetRel(int32_t(coil_feederSteps[layerN]));
+    spindle.setTargetRel(int32_t(coil_spindleSteps[layerN]));
+
+    progress_percentage = layerN / layers;
+    calculated_height = (layerN + 1); // ********* TODO:multiply by wire diameter
     // If no homing is required or the motors are executing a movement start the layer winding
     if (!homingRequired && !step_controller.isRunning())
     {
-      tone(BUZZER_PIN, 5000, 500); // Buzzer Activation before starting wilding process
-      digitalWrite(STATUS_LED_PIN_R, HIGH);
+      if (pause_flag)
+      {
+        step_controller.stopAsync();
+
+        while (pause_flag)
+          delay(100);
+      }
 
       // Move the motors in sync but without blocking other code execution
       step_controller.moveAsync(feeder, spindle);
 
-      // Set timer delay
-      uint16_t dt = 1000;
-      uint16_t prev_time = millis();
-
       // While there is no homming needed and the controller is executing a move, send the progress via serial
       while (step_controller.isRunning())
       {
-        delay(100);
+
+        if (menuPressed)
+        {
+          menu.call_function(1);
+          menuPressed = false;
+        }
+        // Switch the menu focus
+        if (menuScrolledDown)
+        {
+          menu.switch_focus(false);
+          menuScrolledDown = false;
+        }
+        if (menuScrolledUp)
+        {
+          menu.switch_focus(true);
+          menuScrolledUp = false;
+        }
       }
     }
     else
@@ -488,9 +616,9 @@ void buildCoil()
     delay(250);
   }
 
-  noTone(BUZZER_PIN);
-  digitalWrite(STATUS_LED_PIN_R, LOW);
   turnOffSteppers();
+  menu.previous_screen();
+  menu.set_focusedLine(1);
 }
 
 void decodeSerial()
@@ -518,51 +646,61 @@ void decodeCommand(int16_t _command, int16_t _value)
   case (1):
     // 001 -> Define Coil Width
     coil_width = _value / 10.0;
-    Serial.println(coil_width);
+    Serial.print("coil_width=");
+    Serial.println(coil_width * 10.0);
     break;
   case (2):
     // 002 -> Define Coil Wire Gauge in mm
     wire_gauge_mm = _value / 1000.0;
-    Serial.println(wire_gauge_mm);
+    Serial.print("wire_gauge_mm=");
+    Serial.println(wire_gauge_mm * 1000.0);
     break;
   case (3):
     // 003 -> Define Coil Turns
     turns = _value;
+    Serial.print("turns=");
     Serial.println(turns);
     break;
   case (10):
     // 010 -> Characterize Coil with saved parameters
     coilCharacterization();
-    Serial.println("Characterize");
+    Serial.println("Characterized Coil");
     break;
   case (11):
     // 011 -> Build Coil with saved parameters
+    Serial.println("Building...");
     buildCoil();
-    Serial.println("Build");
+    Serial.println("Built!");
     break;
   case (20):
     // 020 -> Get saved coil_width
-    setResponse(118, coil_width * 10.0);
+    Serial.print("coil_width=");
+    Serial.println(coil_width * 10.0);
     break;
   case (21):
     // 021 -> Get saved wire_gauge_mm
-    setResponse(118, wire_gauge_mm * 1000.0);
+    Serial.print("wire_gauge_mm=");
+    Serial.println(wire_gauge_mm * 1000.0);
     break;
   case (22):
     // 022 -> Get saved turns
-    setResponse(118, turns);
+    Serial.print("turns=");
+    Serial.println(turns);
     break;
   case (23):
     // 023 -> Get calculated number of layers
-    setResponse(118, layers);
+    Serial.print("layers=");
+    Serial.println(layers);
     break;
   case (24):
     // 024 -> Get calculated turns per layer
-    setResponse(118, turns_per_layer);
+    Serial.print("turns_per_layer=");
+    Serial.println(turns_per_layer);
     break;
   case (25):
     // 025 -> Get calculated coil height
-    setResponse(118, calculated_height);
+    Serial.print("calculated_height=");
+    Serial.println(calculated_height);
     break;
   case (30):
     // 030 -> Turn Steppers Off
@@ -578,19 +716,23 @@ void decodeCommand(int16_t _command, int16_t _value)
     break;
   case (33):
     // 033 -> Get leading motor speed
-    setResponse(118, (uint16_t)step_controller.getCurrentSpeed()); // Send leading motor speed in X position with uint16_t data type
+    Serial.print("Current_Speed=");
+    Serial.println((uint16_t)step_controller.getCurrentSpeed()); // Send leading motor speed in X position with uint16_t data type
     break;
   case (34):
     // 034 -> Get feeder position in steps
-    setResponse(118, (uint16_t)feeder.getPosition()); // Send leading motor speed in X position with uint16_t data type
+    Serial.print("Current_Feeder_Position=");
+    Serial.println((uint16_t)feeder.getPosition()); // Send leading motor speed in X position with uint16_t data type
     break;
   case (35):
     // 035 -> Get spindle position in steps
-    setResponse(118, (uint16_t)spindle.getPosition()); // Send leading motor speed in X position with uint16_t data type
+    Serial.print("Current_Spindle_Position=");
+    Serial.println((uint16_t)spindle.getPosition()); // Send leading motor speed in X position with uint16_t data type
     break;
   case (36):
     // 036 -> Get completed turns
-    setResponse(118, (uint16_t)(spindle.getPosition() / STEPS_PER_REV)); // Send spindle executed turns in X position with uint16_t data type
+    Serial.print("Completed_Turns=");
+    Serial.println((uint16_t)(spindle.getPosition() / STEPS_PER_REV)); // Send spindle executed turns in X position with uint16_t data type
     break;
   case (40):
     // 040 -> Change Feeder RPM
@@ -654,14 +796,6 @@ void decodeCommand(int16_t _command, int16_t _value)
     // 099 -> Load Default Setings
     loadDefaultSettings();
     break;
-  case (117):
-    // 117 -> Message
-    // Command will be used when sending general information
-    break;
-  case (118):
-    // 118 -> Response with required data
-    // Command will be used when sending responses
-    break;
   default:
     Serial.println(F("The command is not valid!\n"));
     printHelp();
@@ -705,50 +839,80 @@ void printHelp()
   Serial.println(F("48  -> Change Microstepping Resolution"));
   Serial.println(F("50  -> Change feeder offset"));
   Serial.println(F("99  -> Load Default Setings"));
-  Serial.println(F("117 -> Message"));
-  Serial.println(F("118 -> Response with required data"));
 }
 
-void receiveCommand(int numBytes)
+void set_coil_width()
 {
-  /*
-    Read commands on the I2C bus
-  */
-
-  // Initialiaze array to receive the response in bytes
-  for (int i = 0; i < RESPONSE_SIZE; i++)
-    response[i] = 0;
-
-  // Reads the inputs and saves it to the instruction buffer
-  int i = 0;
-  while (Wire.available() && i < RESPONSE_SIZE)
+  while (!menuPressed)
   {
-    response[i] = Wire.read();
-    i++;
+    if (menuScrolledDown)
+    {
+      coil_width -= 0.1;
+      menu.softUpdate();
+      menuScrolledDown = false;
+    }
+    if (menuScrolledUp)
+    {
+      coil_width += 0.1;
+      menu.softUpdate();
+      menuScrolledUp = false;
+    }
   }
-
-  // Converts the bytes to 16 bit integers and saves to the global response array
-  instruction[0] = (response[0] << 8) | response[1];
-  instruction[1] = (response[2] << 8) | response[3];
 }
 
-void setResponse(int16_t _command, int16_t _value = 0)
+void set_wire_gauge()
 {
-  // Prepare commands to the coil winder with the corresponding value
-
-  // Convert the int16_t to byte and save to the response array
-  response[0] = (_command >> 8) & 0xFF;
-  response[1] = _command & 0xFF;
-  response[2] = (_value >> 8) & 0xFF;
-  response[3] = _value & 0xFF;
-
-  // Save the plain values to the instruction array
-  instruction[0] = _command;
-  instruction[1] = _value;
+  while (!menuPressed)
+  {
+    if (menuScrolledDown)
+    {
+      wire_gauge_mm -= 0.001;
+      menu.softUpdate();
+      menuScrolledDown = false;
+    }
+    if (menuScrolledUp)
+    {
+      wire_gauge_mm += 0.001;
+      menu.softUpdate();
+      menuScrolledUp = false;
+    }
+  }
 }
 
-void sendResponse()
+void set_turns()
 {
-  // Sends the prepared command
-  Wire.write(response, sizeof(response));
+  while (!menuPressed)
+  {
+    if (menuScrolledDown)
+    {
+      turns--;
+      menu.softUpdate();
+      menuScrolledDown = false;
+    }
+    if (menuScrolledUp)
+    {
+      turns++;
+      menu.softUpdate();
+      menuScrolledUp = false;
+    }
+  }
+}
+
+void menuPress()
+{
+  menuPressed = true;
+}
+
+void menuScroll()
+{
+  clkState = digitalRead(CLK_PIN);
+  if (clkState != clkLastState)
+  {
+    if (digitalRead(DT_PIN) != clkState)
+      menuScrolledDown = true;
+    else
+      menuScrolledUp = true;
+
+    clkLastState = digitalRead(CLK_PIN);
+  }
 }

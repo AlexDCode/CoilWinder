@@ -22,7 +22,7 @@
     Created July 24, 2016
         by Vasil Kalchev
     https://github.com/VasilKalchev/LiquidMenu
-    
+
     Modified Apr 12, 2021
         by Alex Santiago
 
@@ -47,7 +47,7 @@
 
 SerLCD lcd; // Initialize the library with default I2C address 0x72
 
-//determine sentido que se gira el encoder
+// determine sentido que se gira el encoder
 boolean clkState;
 boolean clkLastState;
 
@@ -79,7 +79,7 @@ LiquidLine welcome_line2(4, 2, "May 12, 2021");
 // Here the LiquidLine objects are the two objects from above.
 LiquidScreen welcome_screen(welcome_line1, welcome_line2);
 
-//Set up screen
+// Set up screen
 LiquidLine setup_line_setuptitle(7, 0, "Set-Up");
 LiquidLine setup_line_back(1, 1, "Back");
 LiquidLine setup_line_coil_width(1, 1, "Width (mm): ", coil_width);
@@ -89,19 +89,13 @@ LiquidLine setup_line_start(1, 0, "Start");
 
 LiquidScreen setup_screen(setup_line_setuptitle, setup_line_coil_width, setup_line_wire_gauge, setup_line_turns);
 
-//Progress screen
+// Progress screen
 LiquidLine progress_line_percentage(1, 0, "Progress %: ", progress_percentage);
 LiquidLine progress_line_coil_height(1, 1, "Height (mm): ", calculated_height);
 LiquidLine progress_line_stop(1, 3, "Back");
 
 LiquidScreen progress_screen(progress_line_percentage, progress_line_coil_height, progress_line_stop);
 
-/*
-    The LiquidMenu object combines the LiquidScreen objects to form the
-    menu. Here it is only instantiated and the screens are added later
-    using menu.add_screen(someScreen_object);. This object is used to
-    control the menu, for example: menu.next_screen(), menu.switch_focus()...
-*/
 LiquidMenu menu(lcd);
 
 void setup()
@@ -121,30 +115,30 @@ void setup()
     pinMode(DT_PIN, INPUT_PULLUP);
     pinMode(SW_PIN, INPUT_PULLUP);
 
-    //identificar a que lado aparece la flecha setup screen
+    // identificar a que lado aparece la flecha setup screen
     setup_line_back.set_focusPosition(Position::LEFT);
     setup_line_coil_width.set_focusPosition(Position::LEFT);
     setup_line_wire_gauge.set_focusPosition(Position::LEFT);
     setup_line_turns.set_focusPosition(Position::LEFT);
     setup_line_start.set_focusPosition(Position::LEFT);
 
-    //attach funcion a cada linea para cuando se seleccione en el menu .attach_function(identifica funcion, nobre de la funcion)
+    // attach funcion a cada linea para cuando se seleccione en el menu .attach_function(identifica funcion, nobre de la funcion)
     setup_line_back.attach_function(1, back);
     setup_line_coil_width.attach_function(1, set_coil_width);
     setup_line_wire_gauge.attach_function(1, set_wire_gauge);
     setup_line_turns.attach_function(1, set_turns);
     setup_line_start.attach_function(1, start);
 
-    //menu.add_screen(setup_screen);
+    // menu.add_screen(setup_screen);
 
-    //identificar a que lado aparece la flecha progress screen
+    // identificar a que lado aparece la flecha progress screen
     progress_line_stop.set_focusPosition(Position::LEFT);
-    //attach funcion a cada linea para cuando se seleccione en el menu .attach_function(identifica funcion, nobre de la funcion)
+    // attach funcion a cada linea para cuando se seleccione en el menu .attach_function(identifica funcion, nobre de la funcion)
     progress_line_stop.attach_function(1, stop);
 
-    //menu.add_screen(progress_screen);
+    // menu.add_screen(progress_screen);
 
-    //identificar cantidad de lines en la pantalla
+    // identificar cantidad de lines en la pantalla
     setup_screen.set_displayLineCount(4);
     progress_screen.set_displayLineCount(4);
 
@@ -154,15 +148,14 @@ void setup()
     Wire.begin();
     Wire.onReceive(receiveCommand);
 
-    lcd.begin(Wire); //Set up the LCD for I2C communication
+    lcd.begin(Wire); // Set up the LCD for I2C communication
 
     // This is the method used to add a screen object to the menu.
     menu.add_screen(welcome_screen);
     menu.add_screen(setup_screen);
     menu.add_screen(progress_screen);
 
-    menu.change_screen(1);
-    // menu.update();
+    menu.nextScreen();
     delay(3000);
 
     menu.change_screen(2);
@@ -173,13 +166,13 @@ void setup()
 
 void loop()
 {
-    //funcion para seleccionar opcion
+    // funcion para seleccionar opcion
     if (!digitalRead(BTN_B_PIN))
         menu.call_function(1);
     if (!digitalRead(SW_PIN))
         menu.call_function(1);
 
-    //identificar el sentido del encoder
+    // identificar el sentido del encoder
     if (!digitalRead(BTN_A_PIN))
         menu.switch_focus(false);
 
@@ -203,7 +196,7 @@ void loop()
 
 //************funciones for lines***************
 
-//funciones para lineas de setup screen
+// funciones para lineas de setup screen
 void set_coil_width()
 {
     delay(500);
@@ -389,7 +382,7 @@ void decodeSerial()
 /*
   ?Command Instruction Set:
       (int16_t)command (int16_t)
-    
+
     000 -> Print help message in serial
     001 -> Define Coil Width
     002 -> Define Coil Wire Gauge in mm

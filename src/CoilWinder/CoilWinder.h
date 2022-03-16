@@ -9,37 +9,34 @@ void buildCoil();                                                               
 void decodeSerial();                                                                                                          // Gabriel
 void decodeCommand(char command, int16_t value);                                                                              // Gabriel
 void printHelp();                                                                                                             // Gabriel
-void sendProgress();                                                                                                          // Gabriel
-void receiveCommand(int numBytes);                                                                                            // Alex
-void setResponse(int16_t _command, int16_t _value);                                                                           // Alex
-void sendResponse();                                                                                                          // Alex
 
 // Define Pin
-#define RX_PIN 0         // Pin for receiving UART data
-#define TX_PIN 1         // Pin for transmitting UART data
+#define CLK_PIN 0
+#define DT_PIN 1
+#define SW_PIN 2
+#define SCL_PIN 3
+#define SDA_PIN 4
 #define END_STOP_2_PIN 7 // End stop micro switch for secondary feeder tower
 #define END_STOP_1_PIN 8 // End stop micro switch for primary feeder tower
-#define FEEDER_EN_PIN 21 //
-#define FEEDER_MS1_PIN 20
-#define FEEDER_MS2_PIN 19
-#define FEEDER_MS3_PIN 18
-#define FEEDER_RST_PIN 17
-#define FEEDER_SLP_PIN 16
-#define FEEDER_STEP_PIN 15
 #define FEEDER_DIR_PIN 14
-#define SPINDLE_EN_PIN 31
-#define SPINDLE_MS1_PIN 32
-#define SPINDLE_MS2_PIN 39
-#define SPINDLE_MS3_PIN 38
-#define SPINDLE_RST_PIN 35
-#define SPINDLE_SLP_PIN 34
-#define SPINDLE_STEP_PIN 37
-#define SPINDLE_DIR_PIN 36
-#define SDA_PIN 4
-#define SCL_PIN 3
+#define FEEDER_STEP_PIN 15
+#define FEEDER_SLP_PIN 16
+#define FEEDER_RST_PIN 17
+#define FEEDER_MS3_PIN 18
+#define FEEDER_MS2_PIN 19
+#define FEEDER_MS1_PIN 20
+#define FEEDER_EN_PIN 21 //
+#define STATUS_LED_PIN_R 28
 #define STOP_BTN 29
 #define BUZZER_PIN 30
-#define STATUS_LED_PIN_R 28
+#define SPINDLE_EN_PIN 31
+#define SPINDLE_MS1_PIN 32
+#define SPINDLE_SLP_PIN 34
+#define SPINDLE_RST_PIN 35
+#define SPINDLE_DIR_PIN 36
+#define SPINDLE_STEP_PIN 37
+#define SPINDLE_MS3_PIN 38
+#define SPINDLE_MS2_PIN 39
 
 // Define Stepper Motors Characteristics
 #define MOTOR_STEPS 200 // Motor steps per revolution
@@ -57,12 +54,10 @@ void sendResponse();                                                            
 #define SPINDLE_POLARITY_DEFAULT false
 #define MICROSTEPS_DEFAULT 16
 #define SPEED_FACTOR_DEFAULT 1
-
 // Define Communication parameters
 #define SERIAL_BAUD_RATE 115200
-#define COIL_WINDER_I2C_ADDRESS 0x70
-#define COMMAND_SIZE 2  // 2 elements of 16 bits each
-#define RESPONSE_SIZE 4 // 2 bytes of command and 2 bytes of value
+#define LCD_ADDRESS 0x70
+#define COMMAND_SIZE 2 // 2 elements of 16 bits each
 
 // EEPROM Variable Mapping
 #define FEEDER_RPM_ADDRESS 0
